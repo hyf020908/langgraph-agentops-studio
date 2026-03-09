@@ -1,0 +1,22 @@
+{
+  "task_id": "demo-run",
+  "recommendation": "Proceed with a phased decision path while collecting additional validation evidence on operational risk and rollback guarantees.",
+  "confidence": 0.61,
+  "risks": [
+    "risk:compliance-interpretation",
+    "risk:operational-rollout",
+    "policy:overall_risk_threshold",
+    "policy:recommendation_confidence_threshold",
+    "policy:contradiction_severity_threshold"
+  ],
+  "evidence_ids": [
+    "EVD-01",
+    "EVD-02",
+    "EVD-03"
+  ],
+  "approval": {
+    "approved": true,
+    "reviewer": "ops-reviewer",
+    "rationale": "Policy conditions were reviewed and accepted with staged controls."
+  }
+}

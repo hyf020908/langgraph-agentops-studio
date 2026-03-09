@@ -1,0 +1,82 @@
+project_name: LangGraph AgentOps Studio
+log_level: INFO
+output_root: runs
+checkpoint_mode: memory
+max_search_results: 5
+max_retries: 2
+max_revisions: 2
+risk_threshold_for_human_review: 0.68
+default_reviewer: governance-board
+
+llm:
+  provider: openai_compatible
+  model: gpt-4o-mini
+  temperature: 0.2
+  max_tokens: 1200
+  timeout: 60
+
+embedding:
+  provider: openai_compatible
+  model: text-embedding-3-small
+  dimensions: 1024
+  batch_size: 32
+  timeout: 60
+
+vector_db:
+  provider: qdrant
+  qdrant_url: null
+  qdrant_api_key: null
+  qdrant_collection: agentops_knowledge
+  qdrant_local_path: .qdrant
+  timeout: 30
+
+rag:
+  enabled: true
+  source_dir: knowledge_base
+  top_k: 4
+  chunk_size: 900
+  chunk_overlap: 120
+  score_threshold: null
+
+web_grounding:
+  mode: auto
+  search_provider: null
+  reader_provider: null
+  enable_web_search: true
+  enable_vector_rag: true
+  web_search_top_k: 5
+  web_reader_top_k: 3
+  evidence_merge_strategy: score
+
+tavily:
+  api_key: null
+  search_depth: basic
+  topic: general
+  max_results: 5
+  include_raw_content: false
+
+jina:
+  api_key: null
+  base_url: https://r.jina.ai/
+  timeout: 30
+  use_json: false
+  bypass_cache: false
+
+exa:
+  api_key: null
+  base_url: https://api.exa.ai
+  search_type: neural
+  max_results: 5
+  use_contents: true
+
+governance:
+  overall_risk_threshold: 0.65
+  recommendation_confidence_threshold: 0.62
+  evidence_completeness_threshold: 0.55
+  contradiction_severity_threshold: 0.55
+  unresolved_questions_threshold: 2
+  high_stakes_task_categories:
+    - architecture
+    - security
+    - finance
+  manual_approval_policy_by_task_type: {}
