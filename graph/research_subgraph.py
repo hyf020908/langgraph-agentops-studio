@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+# Dedicated subgraph for evidence collection.
+# This pipeline runs after planning and before analysis. It dispatches
+# grounding, normalizes heterogeneous results into source records, ranks
+# evidence, and then folds tool outputs back into `AgentState`.
+
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
@@ -27,6 +32,8 @@ def build_research_subgraph(runtime: AgentRuntime, tools: ToolRegistry):
     graph.add_node("ranking_tools", ToolNode([tools.evidence_ranker_tool]))
     graph.add_node("collect_research", build_collect_research_node(runtime))
 
+    # The subgraph is linear on purpose: each stage consumes structured tool
+    # outputs from the previous stage and prepares the next tool invocation.
     graph.add_edge(START, "research_briefing")
     graph.add_edge("research_briefing", "research_tools")
     graph.add_edge("research_tools", "parse_sources")

@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+# Analysis-stage node.
+# The analyst converts ranked evidence into findings, synthesizes a recommendation,
+# runs governance evaluation, and asks the report-writing tool to produce the
+# draft that reviewers and humans will inspect.
+
 from langchain_core.messages import AIMessage
 
 from schemas.models import FindingRecord
@@ -9,6 +14,8 @@ from tools.factory import ToolRegistry
 
 def build_analyst_node(runtime: AgentRuntime, tools: ToolRegistry):
     def analyst_agent(state):
+        # The LLM only produces findings. Recommendation and governance are kept
+        # as deterministic services so policy logic stays outside the prompt.
         findings = runtime.reasoning.analyze_evidence(
             user_request=state["user_request"],
             ranked_evidence=state.get("ranked_evidence", []),
@@ -35,6 +42,8 @@ def build_analyst_node(runtime: AgentRuntime, tools: ToolRegistry):
         report_payload = tools.invoke(
             "report_writer_tool",
             {
+                # The writer tool receives fully structured state so report
+                # rendering does not depend on hidden in-memory objects.
                 "user_request": state["user_request"],
                 "plan": [step.model_dump() for step in state.get("plan", [])],
                 "findings": [finding.model_dump() for finding in findings],

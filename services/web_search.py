@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+# External web-search providers.
+# This service layer isolates provider-specific request/response handling from
+# the rest of the workflow and resolves the configured search/reader pair.
+
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -130,6 +134,8 @@ def build_web_search_provider(settings: Settings) -> BaseWebSearchProvider | Non
     if not settings.web_grounding.enable_web_search:
         return None
 
+    # Search provider resolution is shared with the reader so hybrid grounding
+    # can keep compatible search/reader combinations.
     provider_name, _ = resolve_web_mode(settings)
 
     if provider_name == "tavily":
@@ -155,6 +161,7 @@ def build_web_search_provider(settings: Settings) -> BaseWebSearchProvider | Non
 
 
 def resolve_web_mode(settings: Settings) -> tuple[str, str]:
+    # Explicit provider overrides win; otherwise the mode selects a known pair.
     mode = settings.web_grounding.mode
     override_search = settings.web_grounding.search_provider
     override_reader = settings.web_grounding.reader_provider

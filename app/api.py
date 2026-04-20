@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+# FastAPI surface for the workflow.
+# The API mirrors the runner's lifecycle: create a run, resume an interrupted
+# review gate, inspect provider wiring, and ingest knowledge documents.
+
 import sys
 from pathlib import Path
 
@@ -19,6 +23,8 @@ _runner: WorkflowRunner | None = None
 
 
 def get_runner() -> WorkflowRunner:
+    # Reuse one runner instance so provider clients, vector store handles, and
+    # compiled graph state are initialized once per process.
     global _runner
     if _runner is None:
         _runner = WorkflowRunner()
@@ -76,6 +82,8 @@ def continue_run(task_id: str, request: ContinueRequest) -> RunResponse:
 def ingest_documents(request: IngestRequest) -> IngestResponse:
     try:
         runner = get_runner()
+        # Ingestion is intentionally exposed as a separate API call so the
+        # retrieval corpus can be refreshed independently of workflow runs.
         report = runner.runtime.retrieval.ingest_directory(
             source_dir=request.source_dir,
             recreate_collection=request.recreate_collection,

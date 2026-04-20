@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+# Review and human-approval nodes.
+# The reviewer is still automated: it critiques the draft and decides whether to
+# revise, escalate, or approve. `human_review` is the explicit interrupt/resume
+# boundary where a real person can continue the checkpointed run.
+
 from langgraph.types import Command, interrupt
 
 from schemas.models import ApprovalDecision
@@ -29,6 +34,8 @@ def build_reviewer_node(runtime: AgentRuntime, tools: ToolRegistry):
             },
         )
 
+        # Escalation can come from the reviewer verdict or from governance-based
+        # risk gates even when the reviewer text looks generally positive.
         must_escalate = human_gate or confidence_gate < runtime.settings.risk_threshold_for_human_review
 
         trace = runtime.trace(
@@ -50,6 +57,8 @@ def build_reviewer_node(runtime: AgentRuntime, tools: ToolRegistry):
             "execution_trace": [trace],
         }
         if feedback.verdict == "revise" and state.get("revision_count", 0) < runtime.settings.max_revisions:
+            # Revisions route directly back to analysis with reviewer feedback in
+            # state so the next draft can address concrete concerns.
             update["revision_count"] = state.get("revision_count", 0) + 1
             return Command(update=update, goto="analyst_agent")
         if feedback.verdict == "escalate" or must_escalate:
@@ -63,6 +72,8 @@ def build_reviewer_node(runtime: AgentRuntime, tools: ToolRegistry):
 def build_human_review_node(runtime: AgentRuntime):
     def human_review(state):
         governance = state.get("governance_evaluation")
+        # `interrupt` hands control back to the caller. The workflow remains
+        # paused until `Command(resume=...)` is invoked with a decision payload.
         decision_payload = interrupt(
             {
                 "task_id": state["task_id"],
@@ -97,6 +108,8 @@ def build_human_review_node(runtime: AgentRuntime):
         if decision.approved:
             update["status"] = "approved_for_export"
             return Command(update=update, goto="executor_agent")
+        # Rejections are modeled as another revision cycle rather than a hard
+        # terminal failure, keeping the state/history available for rework.
         update["status"] = "human_requested_revision"
         update["revision_count"] = state.get("revision_count", 0) + 1
         return Command(update=update, goto="analyst_agent")

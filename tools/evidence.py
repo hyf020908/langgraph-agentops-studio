@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+# Tool wrapper for deterministic evidence scoring.
+# The research subgraph uses this tool to convert normalized sources into a
+# ranked evidence ledger plus supporting assessment metadata.
+
 import json
 
 from langchain_core.tools import tool
@@ -21,6 +25,7 @@ def rank_evidence(
     acceptance_criteria: list[str] | None = None,
 ) -> dict:
     source_models = [SourceRecord.model_validate(item) for item in sources]
+    # A fresh pipeline instance is sufficient because scoring is stateless.
     pipeline = EvidencePipeline()
     result = pipeline.assess(
         sources=source_models,

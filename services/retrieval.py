@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+# Local retrieval and ingestion service.
+# This module owns knowledge-base ingestion into the vector store and similarity
+# search over embedded chunks. It is the vector-backed half of hybrid grounding.
+
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -92,6 +96,8 @@ class RetrievalService:
             return []
 
         try:
+            # Retrieval failures are intentionally swallowed here so grounding can
+            # still continue with web sources when vector infrastructure is down.
             query_vector = self.embeddings.embed_query(query)
             search_hits = self.vector_store.search(
                 query_vector=query_vector,
@@ -139,6 +145,8 @@ class RetrievalService:
         try:
             from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+            # Prefer LangChain's splitter when available so chunking behavior
+            # matches common retrieval defaults used in production stacks.
             splitter = RecursiveCharacterTextSplitter(
                 chunk_size=self.settings.chunk_size,
                 chunk_overlap=self.settings.chunk_overlap,
@@ -171,6 +179,7 @@ class RetrievalService:
                     )
             return split_chunks
         except Exception:
+            # The fallback keeps ingestion usable in minimal environments.
             return self._fallback_split_documents(documents)
 
     def _fallback_split_documents(self, documents: list[dict[str, Any]]) -> list[dict[str, Any]]:

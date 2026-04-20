@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+# Runtime dependency assembly.
+# This module wires configuration, providers, services, and storage into a
+# single `AgentRuntime` object that gets injected into graph nodes and tools.
+
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -22,6 +26,8 @@ from services.web_search import BaseWebSearchProvider, build_web_search_provider
 
 @dataclass(slots=True)
 class AgentRuntime:
+    # The runtime is intentionally service-oriented: nodes orchestrate state
+    # transitions while provider-specific work stays behind these interfaces.
     settings: Settings
     storage: LocalArtifactStore
     llm_provider: BaseLLMProvider
@@ -38,6 +44,7 @@ class AgentRuntime:
     logger: Any
 
     def trace(self, node: str, status: str, message: str, metadata: dict[str, Any] | None = None) -> TraceEvent:
+        # Standardize trace creation so every node emits a consistent event shape.
         return TraceEvent(
             timestamp=datetime.now(UTC).isoformat(),
             node=node,
@@ -48,6 +55,8 @@ class AgentRuntime:
 
 
 def build_runtime(settings: Settings | None = None) -> AgentRuntime:
+    # Build the dependency graph in one place so CLI, API, and tests all get
+    # the same provider wiring and service composition.
     resolved_settings = settings or load_settings()
     logger = configure_logging(resolved_settings.log_level)
     storage = LocalArtifactStore(resolved_settings.output_root)

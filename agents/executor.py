@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+# Final export node.
+# The executor persists the run's user-facing artifacts and a raw JSON snapshot
+# after the supervisor determines the workflow has enough information to finish.
+
 from schemas.models import ArtifactRecord
 from services.runtime import AgentRuntime
 from services.serialization import to_jsonable
@@ -8,6 +12,8 @@ from tools.factory import ToolRegistry
 
 def build_executor_node(runtime: AgentRuntime, tools: ToolRegistry):
     def executor_agent(state):
+        # Export and snapshot are separate on purpose: one produces curated
+        # outputs for readers, the other preserves the full serializable state.
         export_payload = tools.invoke(
             "artifact_export_tool",
             {
@@ -39,4 +45,3 @@ def build_executor_node(runtime: AgentRuntime, tools: ToolRegistry):
         }
 
     return executor_agent
-

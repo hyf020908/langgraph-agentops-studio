@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+# Artifact and snapshot persistence tools.
+# These tools are called by the executor so export logic stays separate from the
+# graph node and can be reused from tests or other entrypoints.
+
 import json
 from typing import Any
 
@@ -35,6 +39,8 @@ def build_artifact_export_tool(runtime: AgentRuntime):
     def artifact_export_tool(task_id: str, state_payload: dict[str, Any]) -> str:
         """Render and persist markdown, JSON, Mermaid, and HTML artifacts for a run."""
         state = dict(state_payload)
+        # Export helpers expect typed models for a few nested records, while the
+        # executor passes a fully JSON-safe state snapshot.
         if state.get("review_feedback"):
             state["review_feedback"] = ReviewFeedback.model_validate(state["review_feedback"])
         if state.get("approval_decision"):
@@ -74,4 +80,3 @@ def build_local_storage_tool(runtime: AgentRuntime):
         return json.dumps({"path": str(path)})
 
     return local_storage_tool
-

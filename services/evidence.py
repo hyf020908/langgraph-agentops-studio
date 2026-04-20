@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+# Deterministic evidence scoring pipeline.
+# This service translates normalized source records into ranked evidence,
+# assessment metadata, support/conflict relations, and coverage estimates used
+# by the analyst, governance checks, and artifact export.
+
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from statistics import mean
@@ -34,6 +39,8 @@ class EvidencePipeline:
         user_request: str,
         acceptance_criteria: list[str] | None = None,
     ) -> EvidencePipelineResult:
+        # The pipeline operates on normalized records so later heuristics can
+        # assume snippets/content are present in a consistent shape.
         normalized = [self.normalize_source_record(item) for item in sources]
         conflicts, supports = self._detect_relations(normalized)
 
@@ -69,6 +76,8 @@ class EvidencePipeline:
         evidence_records = self._to_evidence_records(normalized, assessments, user_request)
         evidence_records.sort(key=lambda item: item.confidence, reverse=True)
         for index, item in enumerate(evidence_records, start=1):
+            # Evidence IDs are assigned after sorting so report references match
+            # the final priority order seen by analysts and reviewers.
             item.evidence_id = f"EVD-{index:02d}"
 
         coverage = self._build_coverage_record(
@@ -102,6 +111,8 @@ class EvidencePipeline:
         supports: list[SupportRecord],
         conflicts: list[ConflictRecord],
     ) -> EvidenceScoreBreakdown:
+        # Each component captures a different reliability/usefulness dimension,
+        # which makes later governance output easier to justify.
         relevance = self.score_relevance_to_query(source, user_request)
         source_credibility = self.score_source_quality(source)
         recency = self.score_recency(source.published_at)
@@ -207,6 +218,8 @@ class EvidencePipeline:
 
     @staticmethod
     def _combine_score(breakdown: EvidenceScoreBreakdown) -> float:
+        # Contradictions act as an explicit penalty instead of just reducing a
+        # positive signal, which makes disagreement visible in the final score.
         positive = (
             0.2 * breakdown.relevance
             + 0.16 * breakdown.source_credibility
@@ -261,6 +274,8 @@ class EvidencePipeline:
         acceptance_criteria: list[str],
         evidence: list[EvidenceRecord],
     ) -> CoverageRecord:
+        # Coverage is token-overlap based, which is simple but deterministic and
+        # cheap enough to run on every research iteration.
         request_tokens = set(_tokenize(user_request))
         evidence_tokens = set()
         for item in evidence:
@@ -292,6 +307,8 @@ class EvidencePipeline:
         )
 
     def _detect_relations(self, sources: list[SourceRecord]) -> tuple[list[ConflictRecord], list[SupportRecord]]:
+        # Relation detection is heuristic rather than LLM-based; it exists to
+        # surface corroboration and contradiction signals for governance.
         conflicts: list[ConflictRecord] = []
         supports: list[SupportRecord] = []
 

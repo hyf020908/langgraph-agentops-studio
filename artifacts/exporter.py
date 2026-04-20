@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+# Artifact rendering utilities.
+# The executor uses these helpers to transform final workflow state into the
+# human-readable and machine-readable files persisted under each run directory.
+
 from statistics import mean
 from typing import Any
 
@@ -25,6 +29,8 @@ from services.serialization import to_jsonable
 
 
 def _coerce_review(review: ReviewFeedback | dict[str, Any] | None) -> ReviewFeedback | None:
+    # Export helpers accept either typed runtime objects or the JSON-safe state
+    # snapshot produced by the executor.
     if review is None or isinstance(review, ReviewFeedback):
         return review
     return ReviewFeedback.model_validate(review)
@@ -106,6 +112,8 @@ def _coerce_artifacts(state: AgentState) -> list[ArtifactRecord]:
 
 
 def render_final_report(state: AgentState) -> str:
+    # Rehydrate state into typed models before rendering so export logic can be
+    # shared across live runs, tests, and serialized replay payloads.
     findings = _coerce_findings(state)
     evidence = _coerce_evidence(state)
     assessments = _coerce_assessments(state)
@@ -131,6 +139,8 @@ def render_final_report(state: AgentState) -> str:
     assessment_by_source = {item.source_id: item for item in assessments}
     evidence_lines_list: list[str] = []
     for record in evidence:
+        # If the evidence record does not already embed its assessment, fall back
+        # to the separately stored assessment ledger keyed by source ID.
         line = (
             f"- `{record.evidence_id}`: {record.claim} "
             f"(confidence={record.confidence:.2f}, sources={', '.join(record.supporting_sources)})"
@@ -243,6 +253,8 @@ def render_review_feedback(review: ReviewFeedback | None) -> str:
 
 
 def build_decision_record(state: AgentState) -> dict[str, Any]:
+    # The decision record is intentionally compact so downstream systems can
+    # consume a small summary without parsing the entire run artifact.
     evidence = _coerce_evidence(state)
     recommendation = _coerce_recommendation(state.get("recommendation"))
     governance = _coerce_governance(state.get("governance_evaluation"))
@@ -277,6 +289,8 @@ def build_workflow_trace(state: AgentState) -> dict[str, Any]:
 
 
 def build_mermaid_diagram() -> str:
+    # Static diagram of the intended workflow, exported alongside run outputs as
+    # a quick orientation aid for readers.
     return "\n".join(
         [
             "flowchart TD",
@@ -314,6 +328,8 @@ def build_task_summary_html(state: AgentState) -> str:
 
 
 def build_run_artifact(state: AgentState) -> dict[str, Any]:
+    # This is the broadest export payload: a JSON-safe snapshot of the main
+    # decision artifacts and selected state fields for later inspection.
     return to_jsonable(
         {
             "task_id": state["task_id"],

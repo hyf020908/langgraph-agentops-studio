@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+# Tool registry for graph nodes.
+# This module is the boundary between LangGraph orchestration and tool
+# implementations. Nodes ask for tools by semantic role, while the registry
+# hides the concrete construction and JSON decoding details.
+
 import json
 from dataclasses import dataclass
 from typing import Any
@@ -20,6 +25,8 @@ from tools.writing import build_report_writer_tool
 
 @dataclass(slots=True)
 class ToolRegistry:
+    # The registry keeps typed references so the graph can either pass the tools
+    # into `ToolNode` or invoke them synchronously from normal Python code.
     research_grounding_tool: BaseTool
     retrieval_tool: BaseTool
     web_search_tool: BaseTool
@@ -33,11 +40,15 @@ class ToolRegistry:
     local_storage_tool: BaseTool
 
     def invoke(self, tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+        # LangChain tools return strings by default; callers in this project work
+        # with decoded dictionaries to keep state updates explicit and typed.
         raw = getattr(self, tool_name).invoke(payload)
         return json.loads(raw) if isinstance(raw, str) else raw
 
 
 def build_tool_registry(runtime: AgentRuntime) -> ToolRegistry:
+    # Tools are thin adapters over services/export helpers; the runtime owns the
+    # actual provider clients and storage backends they depend on.
     return ToolRegistry(
         research_grounding_tool=build_research_grounding_tool(runtime),
         retrieval_tool=build_retrieval_tool(runtime),

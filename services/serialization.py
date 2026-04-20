@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+# JSON serialization helpers.
+# Artifact export and state snapshots pass through here so Pydantic models,
+# LangChain messages, dataclasses, and paths can be serialized consistently.
+
 import json
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
@@ -13,6 +17,7 @@ def json_default(value: Any) -> Any:
     if isinstance(value, BaseModel):
         return value.model_dump()
     if isinstance(value, BaseMessage):
+        # Message objects are reduced to the fields that matter for replay/debug.
         return {
             "type": value.type,
             "content": value.content,
@@ -31,5 +36,6 @@ def dumps(payload: Any, *, indent: int = 2) -> str:
 
 
 def to_jsonable(payload: Any) -> Any:
+    # Round-tripping through JSON strips non-serializable runtime objects before
+    # state is written to disk or passed into export helpers.
     return json.loads(dumps(payload))
-

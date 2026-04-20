@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+# Shared LangGraph state contract.
+# `AgentState` is the single mutable record passed between graph nodes. Most
+# fields are progressively filled as the workflow moves from planning to
+# research, analysis, review, human approval, and export.
+
 from datetime import UTC, datetime
 from typing import Annotated, TypedDict
 from uuid import uuid4
@@ -28,6 +33,8 @@ from schemas.models import (
 
 
 def append_records(left: list | None, right: list | None) -> list:
+    # Reducer used by LangGraph for append-only histories such as traces and
+    # reviewer feedback across multiple node executions.
     return (left or []) + (right or [])
 
 
@@ -36,9 +43,11 @@ class AgentState(TypedDict, total=False):
     task_type: str
     messages: Annotated[list[BaseMessage], add_messages]
     task_id: str
+    # Planner-owned fields that define the work the downstream stages execute.
     plan: list[PlanStep]
     acceptance_criteria: list[str]
     search_queries: list[str]
+    # Research pipeline outputs: raw-ish sources first, then ranked evidence.
     retrieved_sources: list[SourceRecord]
     retrieved_chunks: list[SourceRecord]
     ranked_evidence: list[EvidenceRecord]
@@ -46,6 +55,7 @@ class AgentState(TypedDict, total=False):
     evidence_conflicts: list[ConflictRecord]
     evidence_supports: list[SupportRecord]
     coverage_record: CoverageRecord | None
+    # Analyst and reviewer outputs used to build the final decision artifact.
     findings: list[FindingRecord]
     recommendation: RecommendationRecord | None
     governance_evaluation: GovernanceEvaluation | None
@@ -56,8 +66,11 @@ class AgentState(TypedDict, total=False):
     tool_call_history: Annotated[list[ToolCallRecord], append_records]
     execution_trace: Annotated[list[TraceEvent], append_records]
     artifacts: list[ArtifactRecord]
+    # Human review fields are populated only when governance or reviewer policy
+    # escalates the run into an interrupt/resume cycle.
     human_approval_required: bool
     approval_decision: ApprovalDecision | None
+    # Supervisor-owned routing and bookkeeping fields.
     status: str
     error_info: ErrorInfo | None
     retry_count: int
@@ -66,6 +79,8 @@ class AgentState(TypedDict, total=False):
 
 
 def initial_state(user_request: str, task_id: str | None = None, task_type: str = "general") -> AgentState:
+    # Seed every field the graph expects so nodes can update partial state
+    # without repeatedly defending against missing keys.
     run_id = task_id or f"task-{uuid4().hex[:10]}"
     now = datetime.now(UTC).isoformat()
     return {

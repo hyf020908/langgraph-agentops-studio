@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+# Direct retrieval tool.
+# This tool is not part of the default research subgraph path, but it exposes
+# vector-store lookup behind the same tool interface used elsewhere.
+
 import json
 
 from langchain_core.tools import tool

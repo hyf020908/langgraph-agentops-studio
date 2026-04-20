@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+# Direct web-search tool.
+# This stays separate from hybrid grounding so callers can inspect raw search
+# output without vector retrieval or reader enrichment.
+
 import json
 
 from langchain_core.tools import tool

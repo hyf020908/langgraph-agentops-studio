@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+# Main workflow graph for the project.
+# This module assembles the top-level LangGraph loop that plans, researches,
+# analyzes, optionally pauses for human approval, and exports final artifacts.
+# `build_agent_graph` is the entrypoint used by the CLI runner and API.
+
 from langgraph.graph import END, START, StateGraph
 
 from agents.analyst import build_analyst_node
@@ -16,6 +21,7 @@ from tools.factory import build_tool_registry
 
 
 def build_agent_graph(runtime: AgentRuntime):
+    # Build shared tools once so every node works against the same runtime services.
     tools = build_tool_registry(runtime)
     research_subgraph = build_research_subgraph(runtime, tools)
 
@@ -29,6 +35,8 @@ def build_agent_graph(runtime: AgentRuntime):
     graph.add_node("human_review", build_human_review_node(runtime))
     graph.add_node("executor_agent", build_executor_node(runtime, tools))
 
+    # The outer graph is intentionally small: the supervisor decides whether the
+    # run needs more research, analysis, human review, export, or can terminate.
     graph.add_edge(START, "initialize_task")
     graph.add_edge("initialize_task", "planner_agent")
     graph.add_edge("planner_agent", "supervisor")
@@ -43,6 +51,8 @@ def build_agent_graph(runtime: AgentRuntime):
             "end": END,
         },
     )
+    # Research and execution both report back into the supervisor so routing can
+    # react to retries, governance outcomes, and artifact completion.
     graph.add_edge("research_pipeline", "supervisor")
     graph.add_edge("analyst_agent", "reviewer_agent")
     graph.add_edge("executor_agent", "supervisor")

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+# Deterministic report writer.
+# The analyst computes findings/recommendation/governance elsewhere, then uses
+# this module to render a stable markdown draft from structured state payloads.
+
 import json
 from statistics import mean
 from typing import Any
@@ -59,11 +63,15 @@ def write_report(
     recommendation_model = RecommendationRecord.model_validate(recommendation) if recommendation else None
     governance_model = GovernanceEvaluation.model_validate(governance_evaluation) if governance_evaluation else None
 
+    # The draft report is intentionally assembled from structured records rather
+    # than free-form generation so revision cycles stay reproducible.
     avg_confidence = mean(item.confidence for item in evidence_models) if evidence_models else 0.0
     plan_lines = "\n".join(f"- {step.step_id}: {step.objective} ({step.owner})" for step in plan_steps) or "- none"
     finding_lines = "\n".join(f"- {finding.theme}: {finding.insight}" for finding in finding_models) or "- none"
     evidence_lines_list: list[str] = []
     for record in evidence_models:
+        # Each evidence line retains citation and assessment detail so reviewers
+        # can trace a conclusion back to its source and scoring rationale.
         citations = (
             ", ".join(
                 f"{citation.title} ({citation.source}{' #' + citation.chunk_id if citation.chunk_id else ''})"

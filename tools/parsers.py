@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+# Normalization and formatting helpers exposed as tools.
+# These tools keep deterministic data shaping outside the LLM-facing agent code:
+# one canonicalizes source metadata, the other renders reviewer feedback.
+
 import json
 from typing import Any
 
@@ -26,6 +30,8 @@ def parse_sources(results: list[dict[str, Any]]) -> dict[str, Any]:
         relevance = max(0.0, min(0.99, float(score)))
         source_locator = result.source or result.url
 
+        # Parsed sections are lightweight provenance breadcrumbs that can be
+        # surfaced later without carrying provider-specific raw payloads around.
         sections = [
             f"Provider: {result.provider}",
             f"Source type: {result.source_type}",
@@ -59,6 +65,8 @@ def parse_sources(results: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def format_review_feedback(review_feedback: dict[str, Any], task_id: str) -> dict[str, Any]:
+    # Review formatting is deterministic so exported review artifacts match the
+    # structured feedback already stored in workflow state.
     review = ReviewFeedback.model_validate(review_feedback)
     question_lines = [f"- {question}" for question in review.questions] or ["- None"]
     revision_lines = [f"- {item}" for item in review.revision_requests] or ["- None"]

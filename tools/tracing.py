@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+# Trace-event tool.
+# Most trace events are emitted directly by nodes, but the research subgraph
+# also records dispatch metadata through a tool so the event appears in the same
+# message-driven collection path as other research outputs.
+
 import json
 from datetime import UTC, datetime
 
@@ -30,4 +35,3 @@ def build_trace_logger_tool():
         )
 
     return trace_logger_tool
-

@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+# LLM provider and reasoning abstractions.
+# Provider classes handle API calls. The reasoning engine turns those raw model
+# calls into project-specific planner, analyst, and reviewer behaviors with
+# strict JSON contracts.
+
 import json
 import logging
 import re
@@ -45,6 +50,8 @@ class OpenAICompatibleProvider:
         self._client = OpenAI(**client_kwargs)
 
     def complete(self, *, system_prompt: str, user_prompt: str) -> str:
+        # The project uses plain chat completion requests and keeps response
+        # parsing outside the provider so provider classes remain generic.
         response = self._client.chat.completions.create(
             model=self.settings.model,
             temperature=self.settings.temperature,
@@ -112,6 +119,8 @@ class ProviderReasoningEngine:
         self.logger = logging.getLogger("agentops")
 
     def plan_task(self, user_request: str) -> tuple[list[PlanStep], list[str], list[str]]:
+        # Planning requests a deliberately small schema because the rest of the
+        # workflow assumes a compact plan and a few focused research queries.
         payload = {
             "task": user_request,
             "requirements": [
@@ -164,6 +173,8 @@ class ProviderReasoningEngine:
         ranked_evidence: list[EvidenceRecord],
         revision_count: int,
     ) -> list[FindingRecord]:
+        # Only the most relevant evidence is serialized into the prompt to keep
+        # the analyst focused and the payload size bounded.
         serialized_evidence = [
             {
                 "evidence_id": item.evidence_id,
@@ -221,6 +232,8 @@ class ProviderReasoningEngine:
         revision_count: int,
         human_approval_required: bool,
     ) -> ReviewFeedback:
+        # Reviewer context includes the current revision count and whether a
+        # human gate is already expected, which nudges escalation decisions.
         payload = {
             "revision_count": revision_count,
             "human_approval_required": human_approval_required,
@@ -263,6 +276,8 @@ def build_reasoning_engine(provider: BaseLLMProvider) -> BaseReasoningEngine:
 
 
 def _extract_json(raw: str) -> dict[str, Any] | None:
+    # Providers do not always return perfectly clean JSON, so the parser accepts
+    # raw JSON, fenced JSON, or the first outermost object-like span.
     text = raw.strip()
     if not text:
         return None

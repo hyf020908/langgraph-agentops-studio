@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+# Programmatic workflow entrypoint.
+# `WorkflowRunner` is the thin application layer used by the CLI and FastAPI
+# adapter. It owns graph compilation, run start/continue semantics, and
+# translation between raw graph state and API-friendly summaries.
+
 from pathlib import Path
 from typing import Any
 
@@ -23,11 +28,15 @@ class WorkflowRunner:
         auto_approve: bool = False,
         task_type: str = "general",
     ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        # Every run gets a checkpoint thread keyed by `task_id` so interrupts can
+        # be resumed later by CLI or API callers.
         state = initial_state(user_request=task, task_id=task_id, task_type=task_type)
         config = {"configurable": {"thread_id": state["task_id"]}}
         result = self.graph.invoke(state, config=config)
         interrupt_payload = self._extract_interrupt_payload(result)
         while interrupt_payload is not None and auto_approve:
+            # Auto-approval exists only for local/demo flows; normal production
+            # control resumes from the stored checkpoint with a human decision.
             decision = {
                 "approved": True,
                 "reviewer": "cli-auto-approver",
@@ -38,6 +47,8 @@ class WorkflowRunner:
         return result, interrupt_payload
 
     def continue_run(self, task_id: str, approved: bool, reviewer: str, rationale: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        # Resume feeds the approval payload back into the interrupted `human_review`
+        # node; LangGraph restores the rest of the checkpointed state for us.
         config = {"configurable": {"thread_id": task_id}}
         result = self.graph.invoke(
             Command(
@@ -52,6 +63,8 @@ class WorkflowRunner:
         return result, self._extract_interrupt_payload(result)
 
     def summarize(self, state: dict[str, Any], interrupt_payload: dict[str, Any] | None = None) -> RunResponse:
+        # This response intentionally exposes only high-level run status and
+        # artifact locations, not the full internal graph state.
         artifact_paths = [artifact.path for artifact in state.get("artifacts", [])]
         review_summary = state.get("review_feedback").summary if state.get("review_feedback") else None
         return RunResponse(
@@ -76,6 +89,8 @@ class WorkflowRunner:
 
     @staticmethod
     def _extract_interrupt_payload(result: dict[str, Any]) -> dict[str, Any] | None:
+        # LangGraph stores interrupts under `__interrupt__`; callers only need
+        # the first payload because this workflow pauses at a single human gate.
         if "__interrupt__" not in result:
             return None
         interrupts = result["__interrupt__"]

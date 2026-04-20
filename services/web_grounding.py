@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+# Hybrid grounding service.
+# This is the runtime boundary that merges vector retrieval, external web search,
+# and optional full-page reading into one ranked result list for the research
+# subgraph.
+
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -40,6 +45,8 @@ class ResearchGroundingService:
         page_count = 0
 
         if vector_enabled:
+            # Vector retrieval brings back local/contextual knowledge already
+            # ingested into the project's configured knowledge base.
             vector_results = self.retrieval.search(query=query, top_k=self.settings.rag.top_k)
             for item in vector_results:
                 enriched = {
@@ -61,6 +68,8 @@ class ResearchGroundingService:
 
             result_by_url = {item.url: item for item in web_results if item.url}
             if self.web_reader_provider is not None and result_by_url:
+                # Reader enrichment is limited to the top URLs so the workflow
+                # gets deeper context without reading every search hit.
                 target_urls = list(result_by_url.keys())[: self.settings.web_grounding.web_reader_top_k]
                 page_contents = self.web_reader_provider.read_urls(target_urls)
                 page_count = len(page_contents)
@@ -112,6 +121,8 @@ class ResearchGroundingService:
 
     @staticmethod
     def _dedupe(items: list[SearchResult]) -> list[SearchResult]:
+        # Keep the strongest representation of a source when multiple providers
+        # or stages return the same URL/chunk combination.
         deduped: dict[str, SearchResult] = {}
         for item in items:
             key = f"{item.source_type}|{item.url}|{item.chunk_id or ''}|{item.provider}"
@@ -131,6 +142,8 @@ class ResearchGroundingService:
         def score_for(item: SearchResult) -> float:
             base = item.score if item.score is not None else item.credibility
             if strategy == "source_priority":
+                # Source-priority mode slightly prefers curated/local or enriched
+                # content over a plain search result with the same base score.
                 if item.source_type == "vector":
                     return base + 0.08
                 if item.source_type == "webpage":

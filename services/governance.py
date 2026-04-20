@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+# Governance policy evaluation.
+# This service decides whether the workflow can continue automatically or must
+# pause for human review based on confidence, coverage, contradictions, and
+# task-level policy triggers.
+
 from statistics import mean
 
 from schemas.models import ConflictRecord, CoverageRecord, EvidenceAssessment, GovernanceEvaluation, RecommendationRecord
@@ -22,6 +27,8 @@ class GovernanceService:
     ) -> GovernanceEvaluation:
         triggered: list[str] = []
 
+        # Coverage notes are passed through directly so human reviewers can see
+        # the same evidence-gap language that research generated.
         evidence_gaps = list(coverage_record.coverage_notes) if coverage_record else ["coverage record unavailable"]
         contradiction_peak = max((item.severity for item in conflicts), default=0.0)
         contradiction_summary = f"max_conflict_severity={contradiction_peak:.2f}, conflict_count={len(conflicts)}"
@@ -58,6 +65,8 @@ class GovernanceService:
         if overall_risk_score >= max(self.policy.overall_risk_threshold, 0.0):
             triggered.append("overall_risk_threshold")
 
+        # Any trigger currently forces a manual gate; the project treats
+        # governance as an allow/interrupt decision rather than soft advice.
         requires_human_review = len(triggered) > 0
         required_action = (
             "Review governance triggers, validate unresolved risks, and provide explicit approval decision."

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+# Direct webpage-reader tool.
+# This is the low-level content fetcher used when callers need page bodies
+# without going through the full grounding merge flow.
+
 import json
 
 from langchain_core.tools import tool

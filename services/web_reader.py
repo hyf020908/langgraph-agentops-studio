@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+# External webpage-reader providers.
+# Reader providers fetch fuller page content for top search hits so the research
+# pipeline can rank evidence on more than snippets alone.
+
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -69,6 +73,7 @@ class JinaReaderProvider:
 
         for url in urls:
             target = self._build_reader_url(url)
+            # Jina is called once per URL because the reader endpoint is URL-based.
             content = self.requester(target, headers, self.timeout)
             text = _coerce_jina_text(content)
             outputs[url] = PageContent(
@@ -98,6 +103,8 @@ class ExaContentsProvider:
         if not urls:
             return {}
 
+        # Exa supports batch content retrieval, so the provider returns a map
+        # keyed by original URL for easy reconciliation with search results.
         endpoint = f"{self.base_url.rstrip('/')}/contents"
         payload = {"urls": urls, "text": True}
         headers = {

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+# Recommendation synthesis.
+# This service converts findings plus evidence quality signals into a single
+# recommendation record that governance and export can evaluate consistently.
+
 from statistics import mean
 
 from schemas.models import CoverageRecord, EvidenceAssessment, EvidenceRecord, FindingRecord, RecommendationRecord
@@ -23,6 +27,8 @@ class RecommendationService:
         evidence_ids = [item.evidence_id for item in ranked_evidence[:4]]
         coverage = coverage_record.query_coverage if coverage_record else 0.0
 
+        # Recommendation mode is determined by evidence sufficiency first,
+        # disagreement/open questions second, and directional confidence last.
         if len(ranked_evidence) < 2 or confidence < 0.45 or coverage < 0.45:
             return RecommendationRecord(
                 recommendation_type="insufficient_evidence",

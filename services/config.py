@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+# Configuration loading and normalization.
+# Settings are built from YAML defaults plus environment overrides so the rest
+# of the runtime can depend on one typed object instead of scattered env reads.
+
 import json
 import os
 from functools import lru_cache
@@ -200,6 +204,8 @@ def _dict_env(name: str, default: dict[str, str]) -> dict[str, str]:
 
 @lru_cache(maxsize=1)
 def load_settings() -> Settings:
+    # Cache the resolved settings because runtime construction is process-wide
+    # and repeated reloads would only duplicate env/default parsing work.
     load_dotenv(ROOT_DIR / ".env")
     defaults = _load_yaml_defaults()
 

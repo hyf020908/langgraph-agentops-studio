@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+# Retrieval-ingestion tool.
+# This exposes corpus ingestion through the same tool abstraction used by the
+# rest of the runtime, even though the CLI/API usually call the service directly.
+
 import json
 
 from langchain_core.tools import tool

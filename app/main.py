@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+# CLI entrypoint for local runs.
+# This script resolves a task from flags or example files, invokes the workflow,
+# and prints a compact JSON summary that can be inspected or piped elsewhere.
+
 import argparse
 import json
 import sys
@@ -28,6 +32,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def resolve_task(args: argparse.Namespace) -> str:
+    # The CLI supports either an inline task or a reusable example file payload.
     if args.task:
         return args.task
     if args.task_file:

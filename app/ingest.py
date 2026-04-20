@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+# CLI helper for populating the retrieval corpus.
+# This keeps vector-store ingestion separate from the main run command so
+# knowledge base refreshes do not have to pass through the agent workflow.
+
 import argparse
 import json
 import sys

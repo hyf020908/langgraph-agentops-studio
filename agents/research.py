@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+# Research-stage nodes for the evidence subgraph.
+# These nodes do not perform retrieval or ranking themselves. Instead, they
+# orchestrate tool calls, then reconcile the resulting messages back into
+# persistent workflow state.
+
 import json
 
 from langchain_core.messages import AIMessage, ToolMessage
@@ -20,6 +25,8 @@ from services.runtime import AgentRuntime
 
 
 def _tool_messages(messages, name: str) -> list[ToolMessage]:
+    # ToolNode writes results back into the shared message history, so later
+    # stages recover prior outputs by filtering ToolMessages by tool name.
     return [message for message in messages if isinstance(message, ToolMessage) and getattr(message, "name", None) == name]
 
 
@@ -32,6 +39,8 @@ def build_research_briefing_node(runtime: AgentRuntime):
         queries = state.get("search_queries", [])[: runtime.settings.max_search_results]
         retry_count = state.get("retry_count", 0)
         if retry_count > 0:
+            # Retries broaden the search prompt toward risks/mitigations instead
+            # of repeating the exact same grounding queries.
             queries = [f"{query} implementation risks and mitigations" for query in queries]
 
         tool_calls = [
@@ -96,6 +105,8 @@ def build_parse_sources_node(runtime: AgentRuntime):
                 continue
             aggregated_results.extend(payload.get("results", []))
 
+        # Deduplication happens before normalization so parser/ranker stages do
+        # not waste work on repeated vector/web hits for the same source.
         deduped = {_dedupe_key(item): SearchResult.model_validate(item).model_dump() for item in aggregated_results}
 
         tool_calls = [
@@ -134,6 +145,8 @@ def build_rank_evidence_node(runtime: AgentRuntime):
             except json.JSONDecodeError:
                 continue
             parsed_sources.extend(payload.get("sources", []))
+        # The evidence tool expects canonical `SourceRecord` payloads, not the
+        # looser search result schema used during grounding.
         deduped = {_dedupe_key(item): SourceRecord.model_validate(item).model_dump() for item in parsed_sources}
         tool_calls = [
             {
@@ -164,6 +177,8 @@ def build_rank_evidence_node(runtime: AgentRuntime):
 
 def build_collect_research_node(runtime: AgentRuntime):
     def collect_research(state):
+        # This is the subgraph's reconciliation step: collect all tool outputs
+        # from message history and materialize them into durable state fields.
         parser_messages = _tool_messages(state.get("messages", []), "source_parser_tool")
         ranker_messages = _tool_messages(state.get("messages", []), "evidence_ranker_tool")
         grounding_messages = _tool_messages(state.get("messages", []), "research_grounding_tool")
@@ -255,6 +270,8 @@ def build_collect_research_node(runtime: AgentRuntime):
         status = "research_complete"
         retry_count = state.get("retry_count", 0)
         if not evidence_records:
+            # Missing evidence is treated as recoverable until the retry budget
+            # is exhausted; the supervisor reads this flag to decide the loop.
             retry_count += 1
             status = "research_failed"
             error_info = ErrorInfo(
