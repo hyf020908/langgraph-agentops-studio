@@ -4,21 +4,37 @@ from __future__ import annotations
 # The API mirrors the runner's lifecycle: create a run, resume an interrupted
 # review gate, inspect provider wiring, and ingest knowledge documents.
 
+import os
 import sys
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
+load_dotenv(ROOT_DIR / ".env")
 
 from app.runner import WorkflowRunner
 from schemas.models import ContinueRequest, IngestRequest, IngestResponse, RunRequest, RunResponse
 
 
+def cors_origins() -> list[str]:
+    raw_origins = os.getenv("CORS_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173")
+    return [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+
+
 app = FastAPI(title="LangGraph AgentOps Studio API", version="1.0.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins(),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 _runner: WorkflowRunner | None = None
 
 

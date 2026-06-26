@@ -19,6 +19,8 @@ venv/
 # Build and packaging artifacts
 build/
 dist/
+node_modules/
+web/dist/
 *.egg-info/
 .eggs/
 pip-wheel-metadata/
