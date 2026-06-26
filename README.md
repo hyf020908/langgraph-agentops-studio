@@ -1,5 +1,7 @@
 # LangGraph AgentOps Studio
 
+[中文文档](README_zh.md)
+
 LangGraph AgentOps Studio is a LangGraph-native AgentOps workbench for multi-agent research workflows, evidence assessment, recommendation synthesis, policy governance, and auditable artifact export.
 
 ## Core Capabilities
@@ -76,7 +78,7 @@ No remote vector database is required for local development. The default vector 
 - Application and runtime controls: `APP_NAME`, `LOG_LEVEL`, `OUTPUT_ROOT`, `CHECKPOINT_MODE`, `MAX_RETRIES`, `MAX_REVISIONS`.
 - Remote Qdrant: set `VECTOR_DB_PROVIDER=qdrant`, `QDRANT_URL`, `QDRANT_API_KEY`, and `QDRANT_COLLECTION` only when using a hosted Qdrant instance.
 - Local vector retrieval behavior: tune `RAG_SOURCE_DIR`, `RAG_TOP_K`, `RAG_CHUNK_SIZE`, `RAG_CHUNK_OVERLAP`, and `RAG_SCORE_THRESHOLD`.
-- Web evidence grounding: keep `ENABLE_WEB_SEARCH=true` and provide either `TAVILY_API_KEY` or `EXA_API_KEY`; set `ENABLE_WEB_SEARCH=false` if no web search key is available.
+- Web evidence grounding: set `ENABLE_WEB_SEARCH=true` and provide either `TAVILY_API_KEY` or `EXA_API_KEY` when live web search is required. The default example keeps `ENABLE_WEB_SEARCH=false` so local runs do not depend on external search or reader providers.
 - Tavily + Jina mode: configure `WEB_SEARCH_MODE=tavily_jina`, `TAVILY_*`, and optionally `JINA_*` reader settings.
 - Exa mode: configure `WEB_SEARCH_MODE=exa`, `EXA_*`, and `EXA_USE_CONTENTS`.
 - Governance policy thresholds: tune `GOVERNANCE_*`, `RISK_THRESHOLD_FOR_HUMAN_REVIEW`, and `GOVERNANCE_MANUAL_APPROVAL_POLICY_BY_TASK_TYPE_JSON`.
@@ -115,7 +117,7 @@ When `--auto-approve` is omitted, high-risk workflows can pause at the HITL appr
 Start the FastAPI server:
 
 ```bash
-uvicorn app.api:app --reload
+.venv/bin/uvicorn app.api:app --reload
 ```
 
 Check service health and active providers:
@@ -154,7 +156,7 @@ curl -X POST http://127.0.0.1:8000/ingest \
 Start the backend:
 
 ```bash
-uvicorn app.api:app --reload
+.venv/bin/uvicorn app.api:app --reload
 ```
 
 Start the frontend in another terminal:
@@ -203,6 +205,16 @@ Final output files include:
 - `state_snapshot.json`: serialized workflow state snapshot for audit and replay.
 
 If a run pauses at the HITL approval gate, final artifacts are not complete until the run is resumed and reaches the executor. The API and web frontend also return `artifact_paths` after artifacts are exported.
+
+## Interface Overview
+
+<p align="center">
+  <img src="assets/1.png" alt="LangGraph AgentOps Studio web interface overview" width="760" />
+</p>
+
+<p align="center">
+  <img src="assets/2.png" alt="LangGraph AgentOps Studio run result and review interface" width="760" />
+</p>
 
 ## Web Frontend
 

@@ -27,7 +27,7 @@ Do not place LLM, embedding, Tavily, Exa, or other provider API keys in the fron
 Start the backend from the repository root:
 
 ```bash
-uvicorn app.api:app --reload
+.venv/bin/uvicorn app.api:app --reload
 ```
 
 Start the frontend from this directory:

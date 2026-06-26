@@ -8,7 +8,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from services.config import RAGSettings
 from services.embeddings import BaseEmbeddingProvider
@@ -158,7 +158,7 @@ class RetrievalService:
                     chunk_id = f"{document['doc_id']}-chunk-{index}"
                     split_chunks.append(
                         {
-                            "point_id": chunk_id,
+                            "point_id": self._point_id(document["source"], index),
                             "text": chunk_text,
                             "payload": {
                                 "source_id": document["doc_id"],
@@ -197,7 +197,7 @@ class RetrievalService:
                 chunk_id = f"{document['doc_id']}-chunk-{index}"
                 chunks.append(
                     {
-                        "point_id": chunk_id,
+                        "point_id": self._point_id(document["source"], index),
                         "text": chunk_text,
                         "payload": {
                             "source_id": document["doc_id"],
@@ -247,3 +247,7 @@ class RetrievalService:
             except Exception:
                 return path.read_text(encoding="utf-8", errors="ignore")
         return path.read_text(encoding="utf-8", errors="ignore")
+
+    @staticmethod
+    def _point_id(source: str, chunk_index: int) -> str:
+        return str(uuid5(NAMESPACE_URL, f"{source}:{chunk_index}"))

@@ -1,5 +1,7 @@
 # LangGraph AgentOps Studio
 
+[English README](README.md)
+
 LangGraph AgentOps Studio 是一个基于 LangGraph 原生能力构建的 AgentOps 工作台，用于多智能体研究工作流、证据评估、建议综合、策略治理和可审计工件导出。
 
 ## 核心能力
@@ -76,7 +78,7 @@ cp .env.example .env
 - 应用和运行时控制项：`APP_NAME`、`LOG_LEVEL`、`OUTPUT_ROOT`、`CHECKPOINT_MODE`、`MAX_RETRIES`、`MAX_REVISIONS`。
 - 远程 Qdrant：仅在使用托管 Qdrant 实例时，设置 `VECTOR_DB_PROVIDER=qdrant`、`QDRANT_URL`、`QDRANT_API_KEY` 和 `QDRANT_COLLECTION`。
 - 本地向量检索行为：调优 `RAG_SOURCE_DIR`、`RAG_TOP_K`、`RAG_CHUNK_SIZE`、`RAG_CHUNK_OVERLAP` 和 `RAG_SCORE_THRESHOLD`。
-- Web 证据 grounding：保留 `ENABLE_WEB_SEARCH=true` 并提供 `TAVILY_API_KEY` 或 `EXA_API_KEY`；没有 Web Search Key 时设置 `ENABLE_WEB_SEARCH=false`。
+- Web 证据 grounding：需要实时联网搜索时，设置 `ENABLE_WEB_SEARCH=true` 并提供 `TAVILY_API_KEY` 或 `EXA_API_KEY`。默认示例保持 `ENABLE_WEB_SEARCH=false`，避免本地运行依赖外部搜索或 reader provider。
 - Tavily + Jina 模式：配置 `WEB_SEARCH_MODE=tavily_jina`、`TAVILY_*`，并可选配置 `JINA_*` reader 设置。
 - Exa 模式：配置 `WEB_SEARCH_MODE=exa`、`EXA_*` 和 `EXA_USE_CONTENTS`。
 - 治理策略阈值：调优 `GOVERNANCE_*`、`RISK_THRESHOLD_FOR_HUMAN_REVIEW` 和 `GOVERNANCE_MANUAL_APPROVAL_POLICY_BY_TASK_TYPE_JSON`。
@@ -115,7 +117,7 @@ python app/main.py \
 启动 FastAPI 服务器：
 
 ```bash
-uvicorn app.api:app --reload
+.venv/bin/uvicorn app.api:app --reload
 ```
 
 检查服务健康状态和当前 Provider：
@@ -154,7 +156,7 @@ curl -X POST http://127.0.0.1:8000/ingest \
 启动后端：
 
 ```bash
-uvicorn app.api:app --reload
+.venv/bin/uvicorn app.api:app --reload
 ```
 
 在另一个终端中启动前端：
@@ -203,6 +205,16 @@ runs/demo-run/
 - `state_snapshot.json`：用于审计和回放的序列化工作流状态快照。
 
 如果运行在 HITL 审批关口暂停，则最终工件要等到运行恢复并到达 executor 后才会完整生成。工件导出后，API 和 Web 前端也会返回 `artifact_paths`。
+
+## 界面概览
+
+<p align="center">
+  <img src="assets/1.png" alt="LangGraph AgentOps Studio Web 界面概览" width="760" />
+</p>
+
+<p align="center">
+  <img src="assets/2.png" alt="LangGraph AgentOps Studio 运行结果和审阅界面" width="760" />
+</p>
 
 ## Web 前端
 
