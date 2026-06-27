@@ -182,7 +182,7 @@ class ProviderReasoningEngine:
                 "confidence": item.confidence,
                 "risk_flags": item.risk_flags,
                 "summary": item.summary,
-                "citations": item.citations,
+                "citations": [citation.model_dump() for citation in item.citations],
             }
             for item in ranked_evidence[:12]
         ]

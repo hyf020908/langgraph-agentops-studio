@@ -103,7 +103,12 @@ def build_parse_sources_node(runtime: AgentRuntime):
                 payload = json.loads(message.content)
             except json.JSONDecodeError:
                 continue
-            aggregated_results.extend(payload.get("results", []))
+            query = payload.get("query", "")
+            for result in payload.get("results", []):
+                metadata = dict(result.get("metadata", {}))
+                if query:
+                    metadata["grounding_query"] = query
+                aggregated_results.append({**result, "metadata": metadata})
 
         # Deduplication happens before normalization so parser/ranker stages do
         # not waste work on repeated vector/web hits for the same source.

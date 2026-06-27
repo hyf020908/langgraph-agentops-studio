@@ -79,6 +79,7 @@ No remote vector database is required for local development. The default vector 
 - Remote Qdrant: set `VECTOR_DB_PROVIDER=qdrant`, `QDRANT_URL`, `QDRANT_API_KEY`, and `QDRANT_COLLECTION` only when using a hosted Qdrant instance.
 - Local vector retrieval behavior: tune `RAG_SOURCE_DIR`, `RAG_TOP_K`, `RAG_CHUNK_SIZE`, `RAG_CHUNK_OVERLAP`, and `RAG_SCORE_THRESHOLD`.
 - Web evidence grounding: set `ENABLE_WEB_SEARCH=true` and provide either `TAVILY_API_KEY` or `EXA_API_KEY` when live web search is required. The default example keeps `ENABLE_WEB_SEARCH=false` so local runs do not depend on external search or reader providers.
+- Network proxy: if live web search or page reading is slow, blocked, or times out, configure `HTTP_PROXY` and `HTTPS_PROXY` in the backend `.env`, for example `HTTP_PROXY=http://127.0.0.1:7890`.
 - Tavily + Jina mode: configure `WEB_SEARCH_MODE=tavily_jina`, `TAVILY_*`, and optionally `JINA_*` reader settings.
 - Exa mode: configure `WEB_SEARCH_MODE=exa`, `EXA_*`, and `EXA_USE_CONTENTS`.
 - Governance policy thresholds: tune `GOVERNANCE_*`, `RISK_THRESHOLD_FOR_HUMAN_REVIEW`, and `GOVERNANCE_MANUAL_APPROVAL_POLICY_BY_TASK_TYPE_JSON`.
@@ -282,6 +283,7 @@ npm run build
 
 - Frontend cannot connect to the API: verify `VITE_API_BASE_URL` in `web/.env` and `CORS_ORIGINS` in the backend environment. The default backend CORS origins include `http://127.0.0.1:5173` and `http://localhost:5173`.
 - Run creation fails: verify LLM, embedding, and web search API keys in `.env`.
+- Live web search is slow or frequently fails: set `HTTP_PROXY` and `HTTPS_PROXY` in the backend `.env`, then restart the API server.
 - No Tavily or Exa key is available: set `ENABLE_WEB_SEARCH=false` to run without live web search.
 - A high-risk task triggers human approval: enable `--auto-approve`, set `auto_approve=true`, or resume through `/runs/{task_id}/continue` or the web frontend review panel.
 

@@ -79,6 +79,7 @@ cp .env.example .env
 - 远程 Qdrant：仅在使用托管 Qdrant 实例时，设置 `VECTOR_DB_PROVIDER=qdrant`、`QDRANT_URL`、`QDRANT_API_KEY` 和 `QDRANT_COLLECTION`。
 - 本地向量检索行为：调优 `RAG_SOURCE_DIR`、`RAG_TOP_K`、`RAG_CHUNK_SIZE`、`RAG_CHUNK_OVERLAP` 和 `RAG_SCORE_THRESHOLD`。
 - Web 证据 grounding：需要实时联网搜索时，设置 `ENABLE_WEB_SEARCH=true` 并提供 `TAVILY_API_KEY` 或 `EXA_API_KEY`。默认示例保持 `ENABLE_WEB_SEARCH=false`，避免本地运行依赖外部搜索或 reader provider。
+- 网络代理：如果联网搜索或页面读取卡顿、被阻断或超时，可以在后端 `.env` 中配置 `HTTP_PROXY` 和 `HTTPS_PROXY`，例如 `HTTP_PROXY=http://127.0.0.1:7890`。
 - Tavily + Jina 模式：配置 `WEB_SEARCH_MODE=tavily_jina`、`TAVILY_*`，并可选配置 `JINA_*` reader 设置。
 - Exa 模式：配置 `WEB_SEARCH_MODE=exa`、`EXA_*` 和 `EXA_USE_CONTENTS`。
 - 治理策略阈值：调优 `GOVERNANCE_*`、`RISK_THRESHOLD_FOR_HUMAN_REVIEW` 和 `GOVERNANCE_MANUAL_APPROVAL_POLICY_BY_TASK_TYPE_JSON`。
@@ -282,6 +283,7 @@ npm run build
 
 - 前端无法连接 API：核验 `web/.env` 中的 `VITE_API_BASE_URL` 和后端环境变量 `CORS_ORIGINS`。默认后端 CORS origins 包含 `http://127.0.0.1:5173` 和 `http://localhost:5173`。
 - 创建运行失败：核验 `.env` 中的 LLM、Embedding 和 Web Search API Key。
+- 联网搜索卡顿或频繁失败：在后端 `.env` 中设置 `HTTP_PROXY` 和 `HTTPS_PROXY`，然后重启 API 服务。
 - 没有可用的 Tavily 或 Exa Key：设置 `ENABLE_WEB_SEARCH=false`，即可在不使用实时 Web Search 的情况下运行。
 - 高风险任务触发人工审批：启用 `--auto-approve`、设置 `auto_approve=true`，或通过 `/runs/{task_id}/continue` 或 Web 前端审阅面板恢复运行。
 

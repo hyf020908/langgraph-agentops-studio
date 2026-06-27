@@ -5,6 +5,7 @@ from __future__ import annotations
 # pipeline can rank evidence on more than snippets alone.
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -15,6 +16,8 @@ from pydantic import BaseModel, Field
 
 from services.config import Settings
 from services.web_search import resolve_web_mode
+
+logger = logging.getLogger("agentops.web_reader")
 
 
 class WebReaderConfigError(RuntimeError):
@@ -37,8 +40,26 @@ class BaseWebReaderProvider(Protocol):
         ...
 
 
+def _browser_headers() -> dict[str, str]:
+    return {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/126.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.7",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Upgrade-Insecure-Requests": "1",
+    }
+
+
 def _get_text(url: str, headers: dict[str, str], timeout: float = 30.0) -> str:
-    req = urllib_request.Request(url=url, headers=headers, method="GET")
+    req = urllib_request.Request(url=url, headers={**_browser_headers(), **headers}, method="GET")
     with urllib_request.urlopen(req, timeout=timeout) as resp:
         return resp.read().decode("utf-8", errors="ignore")
 
@@ -63,7 +84,7 @@ class JinaReaderProvider:
 
     def read_urls(self, urls: list[str]) -> dict[str, PageContent]:
         outputs: dict[str, PageContent] = {}
-        headers: dict[str, str] = {}
+        headers = _browser_headers()
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         if self.use_json:
@@ -74,14 +95,15 @@ class JinaReaderProvider:
         for url in urls:
             target = self._build_reader_url(url)
             # Jina is called once per URL because the reader endpoint is URL-based.
-            content = self.requester(target, headers, self.timeout)
-            text = _coerce_jina_text(content)
-            outputs[url] = PageContent(
-                url=url,
-                content=text,
-                provider="jina",
-                metadata={"reader_url": target},
-            )
+            try:
+                content = self.requester(target, headers, self.timeout)
+                text = _coerce_jina_text(content)
+            except Exception:
+                logger.warning("Jina reader skipped URL after fetch failure: %s", url, exc_info=True)
+                continue
+            if not text.strip():
+                continue
+            outputs[url] = PageContent(url=url, content=text, provider="jina", metadata={"reader_url": target})
         return outputs
 
     def _build_reader_url(self, url: str) -> str:
@@ -111,7 +133,11 @@ class ExaContentsProvider:
             "Content-Type": "application/json",
             "x-api-key": self.api_key,
         }
-        response = self.requester(endpoint, headers, payload, self.timeout)
+        try:
+            response = self.requester(endpoint, headers, payload, self.timeout)
+        except Exception:
+            logger.warning("Exa contents reader failed; continuing without page contents.", exc_info=True)
+            return {}
 
         outputs: dict[str, PageContent] = {}
         for item in response.get("results", []):

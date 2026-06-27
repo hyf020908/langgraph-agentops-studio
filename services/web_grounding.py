@@ -71,7 +71,11 @@ class ResearchGroundingService:
                 # Reader enrichment is limited to the top URLs so the workflow
                 # gets deeper context without reading every search hit.
                 target_urls = list(result_by_url.keys())[: self.settings.web_grounding.web_reader_top_k]
-                page_contents = self.web_reader_provider.read_urls(target_urls)
+                try:
+                    page_contents = self.web_reader_provider.read_urls(target_urls)
+                except Exception:
+                    self.logger.warning("Web reader enrichment failed; continuing with search snippets.", exc_info=True)
+                    page_contents = {}
                 page_count = len(page_contents)
                 for url, page in page_contents.items():
                     if url not in result_by_url:

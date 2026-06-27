@@ -67,6 +67,19 @@ def build_artifact_export_tool(runtime: AgentRuntime):
                 {"name": "run_artifact.json", "path": str(run_artifact_path), "media_type": "application/json"},
             ]
         }
+        final_state = {**state, "artifacts": payload["artifacts"]}
+        trace_events = list(final_state.get("execution_trace", []))
+        if trace_events:
+            last_event = dict(trace_events[-1])
+            if last_event.get("node") == "executor_agent":
+                last_metadata = dict(last_event.get("metadata", {}))
+                last_metadata["artifact_count"] = len(payload["artifacts"])
+                last_event["metadata"] = last_metadata
+                trace_events[-1] = last_event
+                final_state["execution_trace"] = trace_events
+        runtime.storage.write_json(task_id, "workflow_trace.json", build_workflow_trace(final_state))
+        runtime.storage.write_text(task_id, "task_summary.html", build_task_summary_html(final_state))
+        runtime.storage.write_json(task_id, "run_artifact.json", build_run_artifact(final_state))
         return json.dumps(payload)
 
     return artifact_export_tool

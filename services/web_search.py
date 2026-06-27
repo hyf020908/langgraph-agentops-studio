@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
 from urllib import request as urllib_request
+from uuid import NAMESPACE_URL, uuid5
 
 from schemas.models import SearchResult
 from services.config import Settings
@@ -23,6 +24,11 @@ class BaseWebSearchProvider(Protocol):
 
     def search(self, query: str, max_results: int) -> list[SearchResult]:
         ...
+
+
+def _stable_source_id(prefix: str, url: str, fallback: str) -> str:
+    key = url.strip() or fallback
+    return f"{prefix}-{uuid5(NAMESPACE_URL, key).hex[:10].upper()}"
 
 
 def _post_json(url: str, headers: dict[str, str], payload: dict[str, Any], timeout: float = 30.0) -> dict[str, Any]:
@@ -63,7 +69,7 @@ class TavilySearchProvider:
             snippet = str(item.get("content") or content[:500] or item.get("title") or "")
             results.append(
                 SearchResult(
-                    source_id=f"TAV-{index:03d}",
+                    source_id=_stable_source_id("TAV", url, f"{query}:{index}"),
                     provider="tavily",
                     source_type="web_search",
                     title=str(item.get("title", "Untitled")),
@@ -111,7 +117,7 @@ class ExaSearchProvider:
             text = str(item.get("text", ""))
             results.append(
                 SearchResult(
-                    source_id=str(item.get("id") or f"EXA-{index:03d}"),
+                    source_id=str(item.get("id") or _stable_source_id("EXA", url, f"{query}:{index}")),
                     provider="exa",
                     source_type="web_search",
                     title=str(item.get("title", "Untitled")),

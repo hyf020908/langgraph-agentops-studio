@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import sys
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -36,6 +37,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 _runner: WorkflowRunner | None = None
+logger = logging.getLogger("agentops.api")
 
 
 def get_runner() -> WorkflowRunner:
@@ -75,6 +77,7 @@ def create_run(request: RunRequest) -> RunResponse:
             task_type=request.task_type,
         )
     except Exception as exc:  # pragma: no cover - defensive API wrapper
+        logger.exception("Run creation failed.")
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return runner.summarize(state, interrupt_payload)
 
@@ -90,6 +93,7 @@ def continue_run(task_id: str, request: ContinueRequest) -> RunResponse:
             rationale=request.rationale,
         )
     except Exception as exc:  # pragma: no cover - defensive API wrapper
+        logger.exception("Run continuation failed for task_id=%s.", task_id)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return runner.summarize(state, interrupt_payload)
 
@@ -105,5 +109,6 @@ def ingest_documents(request: IngestRequest) -> IngestResponse:
             recreate_collection=request.recreate_collection,
         )
     except Exception as exc:  # pragma: no cover - defensive API wrapper
+        logger.exception("Document ingestion failed.")
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return IngestResponse.model_validate(report)

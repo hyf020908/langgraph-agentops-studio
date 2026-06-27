@@ -84,6 +84,7 @@ class EvidencePipeline:
             user_request=user_request,
             acceptance_criteria=acceptance_criteria or [],
             evidence=evidence_records,
+            sources=normalized,
         )
         return EvidencePipelineResult(
             ranked_evidence=evidence_records,
@@ -147,11 +148,16 @@ class EvidencePipeline:
     @staticmethod
     def score_relevance_to_query(source: SourceRecord, user_request: str) -> float:
         source_tokens = set(_tokenize(" ".join([source.title, source.snippet, source.content or ""])))
-        query_tokens = set(_tokenize(user_request))
-        if not source_tokens or not query_tokens:
+        query_candidates = [user_request, str(source.metadata.get("grounding_query", ""))]
+        query_token_sets = [set(_tokenize(item)) for item in query_candidates if item]
+        if not source_tokens or not query_token_sets:
             return 0.0
-        overlap = len(source_tokens & query_tokens)
-        return min(1.0, overlap / max(1, len(query_tokens)))
+        scores = [
+            len(source_tokens & query_tokens) / max(1, len(query_tokens))
+            for query_tokens in query_token_sets
+            if query_tokens
+        ]
+        return min(1.0, max(scores) if scores else 0.0)
 
     @staticmethod
     def score_source_quality(source: SourceRecord) -> float:
@@ -211,7 +217,7 @@ class EvidencePipeline:
 
     @staticmethod
     def score_actionability(source: SourceRecord, user_request: str) -> float:
-        text = " ".join([source.title, source.snippet, source.content or "", user_request]).lower()
+        text = " ".join([source.title, source.snippet, source.content or ""]).lower()
         markers = ["should", "risk", "impact", "cost", "trade-off", "recommend", "decision", "mitigation"]
         hits = sum(1 for marker in markers if marker in text)
         return min(1.0, hits / len(markers) * 1.6)
@@ -245,7 +251,7 @@ class EvidencePipeline:
             evidence.append(
                 EvidenceRecord(
                     evidence_id=f"EVD-{len(evidence) + 1:02d}",
-                    claim=f"{source.title} contributes to task '{user_request}'.",
+                    claim=f"{source.title} provides evidence for the research assessment.",
                     supporting_sources=[source.source_id],
                     confidence=assessment.overall_score,
                     risk_flags=assessment.flags,
@@ -273,24 +279,29 @@ class EvidencePipeline:
         user_request: str,
         acceptance_criteria: list[str],
         evidence: list[EvidenceRecord],
+        sources: list[SourceRecord],
     ) -> CoverageRecord:
         # Coverage is token-overlap based, which is simple but deterministic and
         # cheap enough to run on every research iteration.
-        request_tokens = set(_tokenize(user_request))
         evidence_tokens = set()
         for item in evidence:
             evidence_tokens.update(_tokenize(item.summary))
-            evidence_tokens.update(_tokenize(item.claim))
+            for citation in item.citations:
+                evidence_tokens.update(_tokenize(citation.title))
+        grounding_tokens = set()
+        for source in sources:
+            grounding_tokens.update(_tokenize(str(source.metadata.get("grounding_query", ""))))
+        evidence_tokens.update(grounding_tokens)
 
-        query_coverage = len(request_tokens & evidence_tokens) / max(1, len(request_tokens)) if request_tokens else 0.0
+        request_tokens = set(_tokenize(user_request))
+        query_coverage = _coverage_score(request_tokens, evidence_tokens)
 
         criteria_scores: list[float] = []
         for criterion in acceptance_criteria:
             criterion_tokens = set(_tokenize(criterion))
             if not criterion_tokens:
                 continue
-            overlap = len(criterion_tokens & evidence_tokens) / len(criterion_tokens)
-            criteria_scores.append(overlap)
+            criteria_scores.append(_coverage_score(criterion_tokens, evidence_tokens))
         criteria_coverage = mean(criteria_scores) if criteria_scores else query_coverage
 
         notes = []
@@ -406,7 +417,46 @@ class EvidencePipeline:
 
 def _tokenize(text: str) -> list[str]:
     cleaned = "".join(ch.lower() if ch.isalnum() else " " for ch in text)
-    return [token for token in cleaned.split() if len(token) > 2]
+    tokens = [token for token in cleaned.split() if len(token) > 2]
+    expanded: list[str] = []
+    lowered = text.lower()
+    for marker, mapped_tokens in _CROSS_LANGUAGE_TERMS.items():
+        if marker in lowered:
+            expanded.extend(mapped_tokens)
+    return tokens + expanded
+
+
+def _coverage_score(target_tokens: set[str], evidence_tokens: set[str]) -> float:
+    if not target_tokens:
+        return 0.0
+    if not evidence_tokens:
+        return 0.0
+    return len(target_tokens & evidence_tokens) / len(target_tokens)
+
+
+_CROSS_LANGUAGE_TERMS = {
+    "核心交易": ["core", "trading", "system"],
+    "交易系统": ["trading", "system"],
+    "单体": ["monolith", "monolithic"],
+    "微服务": ["microservices", "distributed", "architecture"],
+    "多智能体": ["multi", "agent", "orchestration"],
+    "智能体": ["agent"],
+    "数据合规": ["data", "compliance", "governance"],
+    "合规": ["compliance", "regulatory"],
+    "数据流": ["data", "flow", "lineage"],
+    "数据": ["data"],
+    "容灾": ["disaster", "recovery", "resilience", "rto", "rpo"],
+    "灾备": ["disaster", "recovery", "rto", "rpo"],
+    "恢复": ["recovery"],
+    "人工审批": ["human", "approval", "review"],
+    "审批": ["approval", "review"],
+    "风险": ["risk"],
+    "缓解": ["mitigation", "control"],
+    "量化": ["quantified", "metrics", "rto", "rpo"],
+    "架构": ["architecture"],
+    "迁移": ["migration"],
+    "审计": ["audit", "logging"],
+}
 
 
 def _contains_negative_signal(text: str) -> bool:
