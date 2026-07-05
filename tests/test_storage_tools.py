@@ -34,9 +34,13 @@ def test_artifact_export_rewrites_files_with_final_artifacts(tmp_path) -> None:
     run_dir = tmp_path / "task"
     trace = json.loads((run_dir / "workflow_trace.json").read_text(encoding="utf-8"))
     run_artifact = json.loads((run_dir / "run_artifact.json").read_text(encoding="utf-8"))
+    context_compaction = json.loads((run_dir / "context_compaction.json").read_text(encoding="utf-8"))
+    context_manifest = json.loads((run_dir / "context_manifest.json").read_text(encoding="utf-8"))
     summary = (run_dir / "task_summary.html").read_text(encoding="utf-8")
 
-    assert len(response["artifacts"]) == 7
-    assert trace["trace"][-1]["metadata"]["artifact_count"] == 7
-    assert len(run_artifact["artifacts"]) == 7
+    assert len(response["artifacts"]) == 9
+    assert trace["trace"][-1]["metadata"]["artifact_count"] == 9
+    assert len(run_artifact["artifacts"]) == 9
+    assert context_compaction["task_id"] == "task"
+    assert context_manifest["task_id"] == "task"
     assert "final_report.md" in summary

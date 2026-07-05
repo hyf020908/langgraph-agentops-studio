@@ -148,6 +148,72 @@ class EvidenceRecord(BaseModel):
     assessment: EvidenceAssessment | None = None
 
 
+class ContextArtifactPointer(BaseModel):
+    # Pointer to context payloads that have been moved out of active state but
+    # remain rehydratable from the run artifact directory.
+    artifact_type: Literal["raw_tool_output", "execution_trace_archive", "conversation_summary", "context_manifest"]
+    path: str
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    description: str = ""
+    item_count: int = Field(default=0, ge=0)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class EvidenceDigest(BaseModel):
+    # Compact analyst-facing evidence view. It preserves lineage to the full
+    # evidence ledger instead of replacing `ranked_evidence`.
+    digest_id: str
+    claim: str
+    summary: str
+    source_ids: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+    citations: list[CitationRecord] = Field(default_factory=list)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    risk_flags: list[str] = Field(default_factory=list)
+    conflict_refs: list[str] = Field(default_factory=list)
+    support_refs: list[str] = Field(default_factory=list)
+
+
+class EvidenceCompactionMap(BaseModel):
+    digest_id: str
+    evidence_ids: list[str] = Field(default_factory=list)
+    source_ids: list[str] = Field(default_factory=list)
+
+
+class RevisionLedger(BaseModel):
+    # Active review context passed into revisions. Full reviewer history remains
+    # available for audit, while this keeps the next analyst prompt focused.
+    resolved_issues: list[str] = Field(default_factory=list)
+    open_issues: list[str] = Field(default_factory=list)
+    new_issues: list[str] = Field(default_factory=list)
+    latest_revision_requests: list[str] = Field(default_factory=list)
+    latest_major_risks: list[str] = Field(default_factory=list)
+    iteration: int = Field(default=0, ge=0)
+
+
+class ContextCompactionStats(BaseModel):
+    trigger_reason: str
+    phase: str
+    pressure_level: Literal["low", "medium", "high", "critical"]
+    estimated_tokens_before: int = Field(default=0, ge=0)
+    estimated_tokens_after: int = Field(default=0, ge=0)
+    tool_messages_offloaded: int = Field(default=0, ge=0)
+    evidence_count_before: int = Field(default=0, ge=0)
+    evidence_count_after: int = Field(default=0, ge=0)
+    conflicts_preserved: int = Field(default=0, ge=0)
+    review_open_issue_count: int = Field(default=0, ge=0)
+    artifact_paths: list[str] = Field(default_factory=list)
+    fallback_reason: str | None = None
+
+
+class ContextCompactionEvent(BaseModel):
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    trigger_reason: str
+    phase: str
+    stats: ContextCompactionStats
+    protected_fields: list[str] = Field(default_factory=list)
+
+
 class FindingRecord(BaseModel):
     # Analyst output: a compact insight grounded in one or more evidence items.
     finding_id: str

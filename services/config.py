@@ -106,6 +106,19 @@ class GovernanceSettings(BaseModel):
     manual_approval_policy_by_task_type: dict[str, str] = Field(default_factory=dict)
 
 
+class ContextCompactionSettings(BaseModel):
+    enabled: bool = True
+    max_estimated_tokens: int = Field(default=24000, ge=1000)
+    light_pressure_ratio: float = Field(default=0.60, ge=0.0, le=1.0)
+    high_pressure_ratio: float = Field(default=0.75, ge=0.0, le=1.0)
+    critical_pressure_ratio: float = Field(default=0.85, ge=0.0, le=1.0)
+    recent_user_messages: int = Field(default=2, ge=1, le=10)
+    recent_messages: int = Field(default=8, ge=1, le=50)
+    trace_tail_size: int = Field(default=25, ge=1, le=500)
+    semantic_dedupe_threshold: float = Field(default=0.90, ge=0.0, le=1.0)
+    tool_offload_enabled: bool = True
+
+
 class Settings(BaseModel):
     app_name: str = "LangGraph AgentOps Studio"
     log_level: str = "INFO"
@@ -127,6 +140,7 @@ class Settings(BaseModel):
     jina: JinaReaderSettings = Field(default_factory=JinaReaderSettings)
     exa: ExaSettings = Field(default_factory=ExaSettings)
     governance: GovernanceSettings = Field(default_factory=GovernanceSettings)
+    context_compaction: ContextCompactionSettings = Field(default_factory=ContextCompactionSettings)
 
 
 def _load_yaml_defaults() -> dict[str, Any]:
@@ -218,6 +232,7 @@ def load_settings() -> Settings:
     jina_defaults = defaults.get("jina", {})
     exa_defaults = defaults.get("exa", {})
     governance_defaults = defaults.get("governance", {})
+    context_defaults = defaults.get("context_compaction", {})
 
     return Settings.model_validate(
         {
@@ -356,6 +371,48 @@ def load_settings() -> Settings:
                 "manual_approval_policy_by_task_type": _dict_env(
                     "GOVERNANCE_MANUAL_APPROVAL_POLICY_BY_TASK_TYPE_JSON",
                     governance_defaults.get("manual_approval_policy_by_task_type", {}),
+                ),
+            },
+            "context_compaction": {
+                "enabled": _to_bool(
+                    os.getenv("CONTEXT_COMPACTION_ENABLED"),
+                    context_defaults.get("enabled", True),
+                ),
+                "max_estimated_tokens": _int_env(
+                    "CONTEXT_MAX_ESTIMATED_TOKENS",
+                    context_defaults.get("max_estimated_tokens", 24000),
+                ),
+                "light_pressure_ratio": _float_env(
+                    "CONTEXT_LIGHT_PRESSURE_RATIO",
+                    context_defaults.get("light_pressure_ratio", 0.60),
+                ),
+                "high_pressure_ratio": _float_env(
+                    "CONTEXT_HIGH_PRESSURE_RATIO",
+                    context_defaults.get("high_pressure_ratio", 0.75),
+                ),
+                "critical_pressure_ratio": _float_env(
+                    "CONTEXT_CRITICAL_PRESSURE_RATIO",
+                    context_defaults.get("critical_pressure_ratio", 0.85),
+                ),
+                "recent_user_messages": _int_env(
+                    "CONTEXT_RECENT_USER_MESSAGES",
+                    context_defaults.get("recent_user_messages", 2),
+                ),
+                "recent_messages": _int_env(
+                    "CONTEXT_RECENT_MESSAGES",
+                    context_defaults.get("recent_messages", 8),
+                ),
+                "trace_tail_size": _int_env(
+                    "CONTEXT_TRACE_TAIL_SIZE",
+                    context_defaults.get("trace_tail_size", 25),
+                ),
+                "semantic_dedupe_threshold": _float_env(
+                    "CONTEXT_SEMANTIC_DEDUPE_THRESHOLD",
+                    context_defaults.get("semantic_dedupe_threshold", 0.90),
+                ),
+                "tool_offload_enabled": _to_bool(
+                    os.getenv("CONTEXT_TOOL_OFFLOAD_ENABLED"),
+                    context_defaults.get("tool_offload_enabled", True),
                 ),
             },
         }

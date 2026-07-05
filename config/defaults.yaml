@@ -80,3 +80,15 @@ governance:
     - security
     - finance
   manual_approval_policy_by_task_type: {}
+
+context_compaction:
+  enabled: true
+  max_estimated_tokens: 24000
+  light_pressure_ratio: 0.60
+  high_pressure_ratio: 0.75
+  critical_pressure_ratio: 0.85
+  recent_user_messages: 2
+  recent_messages: 8
+  trace_tail_size: 25
+  semantic_dedupe_threshold: 0.90
+  tool_offload_enabled: true

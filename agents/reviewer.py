@@ -22,7 +22,7 @@ def build_reviewer_node(runtime: AgentRuntime, tools: ToolRegistry):
 
         feedback = runtime.reasoning.review_report(
             draft_report=state.get("draft_report", ""),
-            ranked_evidence=state.get("ranked_evidence", []),
+            ranked_evidence=runtime.context_compaction.project_reviewer_evidence(state),
             revision_count=state.get("revision_count", 0),
             human_approval_required=human_gate,
         )
@@ -49,12 +49,18 @@ def build_reviewer_node(runtime: AgentRuntime, tools: ToolRegistry):
                 "triggered_policies": governance.triggered_policies if governance else [],
             },
         )
+        revision_ledger, compaction_event, compaction_trace = runtime.context_compaction.update_revision_ledger(
+            state,
+            feedback,
+        )
         update = {
             "review_feedback": feedback,
             "reviewer_history": [feedback],
+            "revision_ledger": revision_ledger,
+            "context_compaction_history": [compaction_event],
             "status": f"review_{feedback.verdict}",
             "sender": "reviewer_agent",
-            "execution_trace": [trace],
+            "execution_trace": [trace, compaction_trace],
         }
         if feedback.verdict == "revise" and state.get("revision_count", 0) < runtime.settings.max_revisions:
             # Revisions route directly back to analysis with reviewer feedback in

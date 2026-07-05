@@ -16,14 +16,19 @@ from schemas.models import (
     ApprovalDecision,
     ArtifactRecord,
     ConflictRecord,
+    ContextArtifactPointer,
+    ContextCompactionEvent,
     CoverageRecord,
     ErrorInfo,
+    EvidenceCompactionMap,
     EvidenceAssessment,
+    EvidenceDigest,
     EvidenceRecord,
     FindingRecord,
     GovernanceEvaluation,
     PlanStep,
     RecommendationRecord,
+    RevisionLedger,
     ReviewFeedback,
     SourceRecord,
     SupportRecord,
@@ -35,7 +40,15 @@ from schemas.models import (
 def append_records(left: list | None, right: list | None) -> list:
     # Reducer used by LangGraph for append-only histories such as traces and
     # reviewer feedback across multiple node executions.
+    if isinstance(right, dict) and right.get("__replace__") is True:
+        return list(right.get("items", []))
     return (left or []) + (right or [])
+
+
+def replace_records(items: list) -> dict:
+    # LangGraph reducers normally append these histories. Context compaction
+    # needs an explicit replacement signal after archived data has been written.
+    return {"__replace__": True, "items": items}
 
 
 class AgentState(TypedDict, total=False):
@@ -55,6 +68,8 @@ class AgentState(TypedDict, total=False):
     evidence_conflicts: list[ConflictRecord]
     evidence_supports: list[SupportRecord]
     coverage_record: CoverageRecord | None
+    compacted_evidence: list[EvidenceDigest]
+    evidence_compaction_map: list[EvidenceCompactionMap]
     # Analyst and reviewer outputs used to build the final decision artifact.
     findings: list[FindingRecord]
     recommendation: RecommendationRecord | None
@@ -62,9 +77,13 @@ class AgentState(TypedDict, total=False):
     draft_report: str
     review_feedback: ReviewFeedback | None
     reviewer_history: Annotated[list[ReviewFeedback], append_records]
+    revision_ledger: RevisionLedger | None
     revision_count: int
     tool_call_history: Annotated[list[ToolCallRecord], append_records]
     execution_trace: Annotated[list[TraceEvent], append_records]
+    conversation_summary: str
+    context_artifacts: list[ContextArtifactPointer]
+    context_compaction_history: Annotated[list[ContextCompactionEvent], append_records]
     artifacts: list[ArtifactRecord]
     # Human review fields are populated only when governance or reviewer policy
     # escalates the run into an interrupt/resume cycle.
@@ -98,12 +117,15 @@ def initial_state(user_request: str, task_id: str | None = None, task_type: str 
         "evidence_conflicts": [],
         "evidence_supports": [],
         "coverage_record": None,
+        "compacted_evidence": [],
+        "evidence_compaction_map": [],
         "findings": [],
         "recommendation": None,
         "governance_evaluation": None,
         "draft_report": "",
         "review_feedback": None,
         "reviewer_history": [],
+        "revision_ledger": None,
         "revision_count": 0,
         "tool_call_history": [],
         "execution_trace": [
@@ -115,6 +137,9 @@ def initial_state(user_request: str, task_id: str | None = None, task_type: str 
                 metadata={"task_id": run_id},
             )
         ],
+        "conversation_summary": "",
+        "context_artifacts": [],
+        "context_compaction_history": [],
         "artifacts": [],
         "human_approval_required": False,
         "approval_decision": None,

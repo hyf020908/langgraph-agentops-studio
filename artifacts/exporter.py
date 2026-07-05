@@ -11,9 +11,13 @@ from schemas.models import (
     ApprovalDecision,
     ArtifactRecord,
     ConflictRecord,
+    ContextArtifactPointer,
+    ContextCompactionEvent,
     CoverageRecord,
     DecisionRecord,
+    EvidenceCompactionMap,
     EvidenceAssessment,
+    EvidenceDigest,
     EvidenceRecord,
     FindingRecord,
     GovernanceEvaluation,
@@ -108,6 +112,34 @@ def _coerce_artifacts(state: AgentState) -> list[ArtifactRecord]:
     return [
         item if isinstance(item, ArtifactRecord) else ArtifactRecord.model_validate(item)
         for item in state.get("artifacts", [])
+    ]
+
+
+def _coerce_context_pointers(state: AgentState) -> list[ContextArtifactPointer]:
+    return [
+        item if isinstance(item, ContextArtifactPointer) else ContextArtifactPointer.model_validate(item)
+        for item in state.get("context_artifacts", [])
+    ]
+
+
+def _coerce_compaction_history(state: AgentState) -> list[ContextCompactionEvent]:
+    return [
+        item if isinstance(item, ContextCompactionEvent) else ContextCompactionEvent.model_validate(item)
+        for item in state.get("context_compaction_history", [])
+    ]
+
+
+def _coerce_evidence_digests(state: AgentState) -> list[EvidenceDigest]:
+    return [
+        item if isinstance(item, EvidenceDigest) else EvidenceDigest.model_validate(item)
+        for item in state.get("compacted_evidence", [])
+    ]
+
+
+def _coerce_evidence_compaction_map(state: AgentState) -> list[EvidenceCompactionMap]:
+    return [
+        item if isinstance(item, EvidenceCompactionMap) else EvidenceCompactionMap.model_validate(item)
+        for item in state.get("evidence_compaction_map", [])
     ]
 
 
@@ -339,9 +371,50 @@ def build_run_artifact(state: AgentState) -> dict[str, Any]:
             "evidence_assessments": state.get("evidence_assessments", []),
             "evidence_conflicts": state.get("evidence_conflicts", []),
             "evidence_supports": state.get("evidence_supports", []),
+            "compacted_evidence": _coerce_evidence_digests(state),
+            "evidence_compaction_map": _coerce_evidence_compaction_map(state),
+            "revision_ledger": state.get("revision_ledger"),
+            "context_artifacts": _coerce_context_pointers(state),
+            "context_compaction_history": _coerce_compaction_history(state),
             "artifacts": _coerce_artifacts(state),
             "approval_decision": state.get("approval_decision"),
             "recommendation": state.get("recommendation"),
             "governance_evaluation": state.get("governance_evaluation"),
+        }
+    )
+
+
+def build_context_compaction_artifact(state: AgentState) -> dict[str, Any]:
+    return to_jsonable(
+        {
+            "task_id": state["task_id"],
+            "active_context": {
+                "conversation_summary": state.get("conversation_summary", ""),
+                "compacted_evidence_count": len(state.get("compacted_evidence", [])),
+                "revision_ledger": state.get("revision_ledger"),
+                "active_trace_count": len(state.get("execution_trace", [])),
+            },
+            "evidence_digests": _coerce_evidence_digests(state),
+            "evidence_compaction_map": _coerce_evidence_compaction_map(state),
+            "context_compaction_history": _coerce_compaction_history(state),
+        }
+    )
+
+
+def build_context_manifest(state: AgentState) -> dict[str, Any]:
+    return to_jsonable(
+        {
+            "task_id": state["task_id"],
+            "context_artifacts": _coerce_context_pointers(state),
+            "rehydration": {
+                "raw_tool_outputs": [
+                    item.path for item in _coerce_context_pointers(state) if item.artifact_type == "raw_tool_output"
+                ],
+                "execution_trace_archives": [
+                    item.path
+                    for item in _coerce_context_pointers(state)
+                    if item.artifact_type == "execution_trace_archive"
+                ],
+            },
         }
     )

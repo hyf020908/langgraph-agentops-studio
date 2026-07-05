@@ -320,3 +320,10 @@ def build_collect_research_node(runtime: AgentRuntime):
         }
 
     return collect_research
+
+
+def build_compact_research_context_node(runtime: AgentRuntime):
+    def compact_research_context(state):
+        return runtime.context_compaction.compact_research_context(state)
+
+    return compact_research_context

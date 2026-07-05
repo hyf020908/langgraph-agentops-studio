@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field
 
 from artifacts.exporter import (
     build_decision_record,
+    build_context_compaction_artifact,
+    build_context_manifest,
     build_mermaid_diagram,
     build_run_artifact,
     build_task_summary_html,
@@ -56,6 +58,12 @@ def build_artifact_export_tool(runtime: AgentRuntime):
         diagram_path = runtime.storage.write_text(task_id, "diagram.mmd", build_mermaid_diagram())
         summary_path = runtime.storage.write_text(task_id, "task_summary.html", build_task_summary_html(state))
         run_artifact_path = runtime.storage.write_json(task_id, "run_artifact.json", build_run_artifact(state))
+        context_compaction_path = runtime.storage.write_json(
+            task_id,
+            "context_compaction.json",
+            build_context_compaction_artifact(state),
+        )
+        context_manifest_path = runtime.storage.write_json(task_id, "context_manifest.json", build_context_manifest(state))
         payload = {
             "artifacts": [
                 {"name": "final_report.md", "path": str(final_report_path), "media_type": "text/markdown"},
@@ -65,6 +73,12 @@ def build_artifact_export_tool(runtime: AgentRuntime):
                 {"name": "diagram.mmd", "path": str(diagram_path), "media_type": "text/plain"},
                 {"name": "task_summary.html", "path": str(summary_path), "media_type": "text/html"},
                 {"name": "run_artifact.json", "path": str(run_artifact_path), "media_type": "application/json"},
+                {
+                    "name": "context_compaction.json",
+                    "path": str(context_compaction_path),
+                    "media_type": "application/json",
+                },
+                {"name": "context_manifest.json", "path": str(context_manifest_path), "media_type": "application/json"},
             ]
         }
         final_state = {**state, "artifacts": payload["artifacts"]}
@@ -80,6 +94,8 @@ def build_artifact_export_tool(runtime: AgentRuntime):
         runtime.storage.write_json(task_id, "workflow_trace.json", build_workflow_trace(final_state))
         runtime.storage.write_text(task_id, "task_summary.html", build_task_summary_html(final_state))
         runtime.storage.write_json(task_id, "run_artifact.json", build_run_artifact(final_state))
+        runtime.storage.write_json(task_id, "context_compaction.json", build_context_compaction_artifact(final_state))
+        runtime.storage.write_json(task_id, "context_manifest.json", build_context_manifest(final_state))
         return json.dumps(payload)
 
     return artifact_export_tool

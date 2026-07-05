@@ -204,8 +204,30 @@ Final output files include:
 - `workflow_trace.json`: chronological workflow execution trace.
 - `run_artifact.json`: structured artifact manifest with selected state and decision data.
 - `state_snapshot.json`: serialized workflow state snapshot for audit and replay.
+- `context_compaction.json`: context compaction statistics, active evidence digests, and review delta state.
+- `context_manifest.json`: rehydration pointers for raw tool outputs and archived trace segments.
 
 If a run pauses at the HITL approval gate, final artifacts are not complete until the run is resumed and reaches the executor. The API and web frontend also return `artifact_paths` after artifacts are exported.
+
+## Context Compaction
+
+The workflow keeps protected task context unchanged while reducing the active context passed between later stages. User request, task type, plan, acceptance criteria, active search queries, governance constraints, and human approval state are protected from lossy compaction.
+
+The strategy is type-aware:
+
+- System and task constraints are strongly protected and validated after compaction.
+- Recent user intent is retained verbatim instead of being rewritten into a summary.
+- Raw tool outputs are lifecycle-managed: parsed, materialized, persisted, then offloaded from active context.
+- Retrieved evidence is semantically deduplicated and distilled into structured evidence digests.
+- Reviewer history is compressed into a revision delta with resolved, open, and new issues.
+- Execution trace is archived as an external artifact and rehydrated for final export.
+- Old conversation is summarized only under context pressure while preserving protected fields.
+
+Research completion is a phase boundary. After tool outputs have been parsed into structured state, large raw tool messages can be written under `runs/<task_id>/context/raw_tool_outputs/` and replaced in active message context with artifact pointers. Ranked evidence remains in the audit ledger, while analyst and reviewer prompts can use structured evidence digests with source, citation, conflict, support, and lineage metadata.
+
+Reviewer iterations maintain a revision ledger with resolved, open, and new issues so the next analyst pass does not repeatedly consume the full reviewer history. Long execution traces can be archived under `runs/<task_id>/context/execution_trace_archive.json`; final `workflow_trace.json` rehydrates the archive and active tail before export.
+
+Compaction is fail-open. If embedding, summarization, artifact writing, or rehydration fails, the workflow continues with the original context. See `docs/context_compaction.md` for the full strategy and configuration.
 
 ## Interface Overview
 
@@ -295,6 +317,7 @@ npm run build
 - `docs/web_search.md`
 - `docs/evidence.md`
 - `docs/governance.md`
+- `docs/context_compaction.md`
 - `docs/testing.md`
 
 ## License

@@ -9,6 +9,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
 from agents.research import (
+    build_compact_research_context_node,
     build_collect_research_node,
     build_parse_sources_node,
     build_rank_evidence_node,
@@ -31,6 +32,7 @@ def build_research_subgraph(runtime: AgentRuntime, tools: ToolRegistry):
     graph.add_node("rank_evidence", build_rank_evidence_node(runtime))
     graph.add_node("ranking_tools", ToolNode([tools.evidence_ranker_tool]))
     graph.add_node("collect_research", build_collect_research_node(runtime))
+    graph.add_node("compact_research_context", build_compact_research_context_node(runtime))
 
     # The subgraph is linear on purpose: each stage consumes structured tool
     # outputs from the previous stage and prepares the next tool invocation.
@@ -41,6 +43,7 @@ def build_research_subgraph(runtime: AgentRuntime, tools: ToolRegistry):
     graph.add_edge("parser_tools", "rank_evidence")
     graph.add_edge("rank_evidence", "ranking_tools")
     graph.add_edge("ranking_tools", "collect_research")
-    graph.add_edge("collect_research", END)
+    graph.add_edge("collect_research", "compact_research_context")
+    graph.add_edge("compact_research_context", END)
 
     return graph.compile(name="research_pipeline")

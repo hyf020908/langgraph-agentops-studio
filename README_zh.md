@@ -204,8 +204,30 @@ runs/demo-run/
 - `workflow_trace.json`：按时间顺序记录的工作流执行轨迹。
 - `run_artifact.json`：包含选定状态和决策数据的结构化工件清单。
 - `state_snapshot.json`：用于审计和回放的序列化工作流状态快照。
+- `context_compaction.json`：上下文压缩统计、活动证据摘要和审阅 delta 状态。
+- `context_manifest.json`：原始工具输出和归档 trace 片段的 rehydration 指针。
 
 如果运行在 HITL 审批关口暂停，则最终工件要等到运行恢复并到达 executor 后才会完整生成。工件导出后，API 和 Web 前端也会返回 `artifact_paths`。
+
+## 上下文压缩
+
+工作流会保持受保护任务上下文不变，同时降低后续阶段传递的活动上下文规模。用户请求、任务类型、计划、验收标准、当前检索查询、治理约束和人工审批状态不会被有损压缩。
+
+策略按上下文类型分别处理：
+
+- System / Task Constraints：强保护，并在压缩后校验不变。
+- Recent User Intent：最近用户意图原文保留，不改写为摘要。
+- Raw Tool Outputs：按生命周期处理，先解析、物化、持久化，再从活动上下文 offload。
+- Retrieved Evidence：语义去重，并蒸馏为结构化 evidence digest。
+- Reviewer History：压缩为 revision delta，区分已解决、仍开放和新增问题。
+- Execution Trace：外置归档为 artifact，最终导出前 rehydrate。
+- Old Conversation：仅在上下文压力下摘要，同时保留受保护字段。
+
+研究完成是一个阶段边界。工具输出先被解析为结构化 state，随后大体积原始工具消息可以写入 `runs/<task_id>/context/raw_tool_outputs/`，活动消息上下文中只保留可审计的工件指针。完整 ranked evidence 继续作为审计账本保留，分析员和审阅员可优先使用带 source、citation、conflict、support 和 lineage 信息的结构化证据摘要。
+
+审阅迭代会维护 revision ledger，区分已解决、仍开放和新增问题，避免下一轮分析重复消费完整审阅历史。较长的执行轨迹可以归档到 `runs/<task_id>/context/execution_trace_archive.json`；最终 `workflow_trace.json` 会在导出前合并归档 trace 和活动 tail。
+
+压缩机制采用 fail-open 策略。Embedding、摘要、工件写入或 rehydration 失败时，工作流继续使用原始上下文。完整策略和配置见 `docs/context_compaction.md`。
 
 ## 界面概览
 
@@ -295,6 +317,7 @@ npm run build
 - `docs/web_search.md`
 - `docs/evidence.md`
 - `docs/governance.md`
+- `docs/context_compaction.md`
 - `docs/testing.md`
 
 ## 许可证

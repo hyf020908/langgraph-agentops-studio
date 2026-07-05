@@ -10,6 +10,7 @@ from typing import Any
 
 from schemas.models import TraceEvent
 from services.config import Settings, load_settings
+from services.context_compaction import ContextCompactionService
 from services.embeddings import BaseEmbeddingProvider, build_embedding_provider
 from services.evidence import EvidencePipeline
 from services.governance import GovernanceService
@@ -40,6 +41,7 @@ class AgentRuntime:
     evidence_pipeline: EvidencePipeline
     recommendation_service: RecommendationService
     governance_service: GovernanceService
+    context_compaction: ContextCompactionService
     reasoning: Any
     logger: Any
 
@@ -81,6 +83,13 @@ def build_runtime(settings: Settings | None = None) -> AgentRuntime:
         web_reader_provider=web_reader_provider,
         logger=logger,
     )
+    context_compaction = ContextCompactionService(
+        settings=resolved_settings.context_compaction,
+        storage=storage,
+        embeddings=embedding_provider,
+        llm_provider=llm_provider,
+        logger=logger,
+    )
 
     return AgentRuntime(
         settings=resolved_settings,
@@ -95,6 +104,7 @@ def build_runtime(settings: Settings | None = None) -> AgentRuntime:
         evidence_pipeline=EvidencePipeline(),
         recommendation_service=RecommendationService(),
         governance_service=GovernanceService(resolved_settings.governance),
+        context_compaction=context_compaction,
         reasoning=build_reasoning_engine(llm_provider),
         logger=logger,
     )

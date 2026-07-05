@@ -14,6 +14,11 @@ def build_executor_node(runtime: AgentRuntime, tools: ToolRegistry):
     def executor_agent(state):
         # Export and snapshot are separate on purpose: one produces curated
         # outputs for readers, the other preserves the full serializable state.
+        full_trace = (
+            runtime.context_compaction.merge_archived_trace(state)
+            if hasattr(runtime, "context_compaction")
+            else state.get("execution_trace", [])
+        )
         trace = runtime.trace(
             node="executor_agent",
             status="completed",
@@ -25,7 +30,7 @@ def build_executor_node(runtime: AgentRuntime, tools: ToolRegistry):
             "artifacts": [],
             "status": "completed",
             "sender": "executor_agent",
-            "execution_trace": state.get("execution_trace", []) + [trace],
+            "execution_trace": full_trace + [trace],
             "error_info": None,
         }
         export_payload = tools.invoke(
@@ -40,7 +45,7 @@ def build_executor_node(runtime: AgentRuntime, tools: ToolRegistry):
         snapshot_state = {
             **export_state,
             "artifacts": artifacts,
-            "execution_trace": state.get("execution_trace", []) + [final_trace],
+            "execution_trace": full_trace + [final_trace],
         }
         tools.invoke(
             "local_storage_tool",
