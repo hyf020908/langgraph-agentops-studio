@@ -42,7 +42,15 @@ The top-level graph contains these nodes:
 - evidence assessments, conflicts, supports, and coverage
 - findings and recommendation
 - governance evaluation and human approval decisions
-- tool history, execution trace, and exported artifacts
+- tool/model call histories, execution trace, and exported artifacts
+
+## Checkpoint-backed progress inspection
+
+`GET /runs/{task_id}` reads the latest `StateSnapshot` from the compiled
+LangGraph checkpointer. It exposes the same `RunResponse` contract as create and
+continue calls, including node traces, actual tool calls, actual provider model
+calls and outputs, current/final reports, and `next_nodes`. See
+[`docs/observability.md`](observability.md) for the polling and field contract.
 
 ## Decision Path
 

@@ -26,6 +26,7 @@ from schemas.models import (
     EvidenceRecord,
     FindingRecord,
     GovernanceEvaluation,
+    ModelCallRecord,
     PlanStep,
     RecommendationRecord,
     RevisionLedger,
@@ -80,6 +81,7 @@ class AgentState(TypedDict, total=False):
     revision_ledger: RevisionLedger | None
     revision_count: int
     tool_call_history: Annotated[list[ToolCallRecord], append_records]
+    model_call_history: Annotated[list[ModelCallRecord], append_records]
     execution_trace: Annotated[list[TraceEvent], append_records]
     conversation_summary: str
     context_artifacts: list[ContextArtifactPointer]
@@ -128,6 +130,7 @@ def initial_state(user_request: str, task_id: str | None = None, task_type: str 
         "revision_ledger": None,
         "revision_count": 0,
         "tool_call_history": [],
+        "model_call_history": [],
         "execution_trace": [
             TraceEvent(
                 timestamp=now,

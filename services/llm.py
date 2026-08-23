@@ -8,11 +8,21 @@ from __future__ import annotations
 import json
 import logging
 import re
+from contextvars import ContextVar
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from time import monotonic
 from typing import Any, Protocol
 
-from schemas.models import EvidenceRecord, FindingRecord, PlanStep, ReviewFeedback
+from prompts.analyst import ANALYST_SYSTEM_PROMPT
+from prompts.planner import PLANNER_SYSTEM_PROMPT
+from prompts.reviewer import REVIEWER_SYSTEM_PROMPT
+from schemas.models import EvidenceRecord, FindingRecord, ModelCallRecord, PlanStep, ReviewFeedback
 from services.config import LLMSettings
+
+
+MODEL_INPUT_PREVIEW_LIMIT = 1600
+MODEL_OUTPUT_PREVIEW_LIMIT = 12000
 
 
 class BaseLLMProvider(Protocol):
@@ -117,6 +127,18 @@ class ProviderReasoningEngine:
     def __init__(self, provider: BaseLLMProvider) -> None:
         self.provider = provider
         self.logger = logging.getLogger("agentops")
+        # LangGraph can execute separate runs on different worker threads. A
+        # ContextVar keeps model records scoped to the active node invocation
+        # until that node drains them into checkpointed AgentState.
+        self._model_calls: ContextVar[tuple[ModelCallRecord, ...]] = ContextVar(
+            f"model_calls_{id(self)}",
+            default=(),
+        )
+
+    def drain_model_call_history(self) -> list[ModelCallRecord]:
+        records = list(self._model_calls.get())
+        self._model_calls.set(())
+        return records
 
     def plan_task(self, user_request: str) -> tuple[list[PlanStep], list[str], list[str]]:
         # Planning requests a deliberately small schema because the rest of the
@@ -143,7 +165,9 @@ class ProviderReasoningEngine:
             },
         }
         model_payload = self._complete_json(
-            system_prompt="You are a workflow planner for a LangGraph multi-agent system. Return strict JSON only.",
+            node="planner_agent",
+            operation="plan_task",
+            system_prompt=f"{PLANNER_SYSTEM_PROMPT}\nReturn strict JSON only.",
             user_prompt=json.dumps(payload, ensure_ascii=False),
         )
 
@@ -190,6 +214,12 @@ class ProviderReasoningEngine:
             "task": user_request,
             "revision_count": revision_count,
             "ranked_evidence": serialized_evidence,
+            "requirements": [
+                "Return 4 to 6 non-duplicative findings when the evidence supports that many.",
+                "Write each insight as a specific decision-relevant statement, not a generic summary.",
+                "Write each rationale with evidence support, a material trade-off, and an operational implication.",
+                "Use only evidence IDs present in ranked_evidence.",
+            ],
             "response_schema": {
                 "findings": [
                     {
@@ -204,7 +234,12 @@ class ProviderReasoningEngine:
             },
         }
         model_payload = self._complete_json(
-            system_prompt="You are an analyst agent. Return strict JSON findings grounded in the provided evidence.",
+            node="analyst_agent",
+            operation="analyze_evidence",
+            system_prompt=(
+                f"{ANALYST_SYSTEM_PROMPT}\nReturn strict JSON findings grounded in the provided evidence. "
+                "Prefer substantive, audit-ready explanations over terse conclusions."
+            ),
             user_prompt=json.dumps(payload, ensure_ascii=False),
         )
 
@@ -238,7 +273,7 @@ class ProviderReasoningEngine:
             "revision_count": revision_count,
             "human_approval_required": human_approval_required,
             "ranked_evidence_count": len(ranked_evidence),
-            "draft_excerpt": draft_report[:4000],
+            "draft_excerpt": draft_report[:8000],
             "response_schema": {
                 "verdict": "approve|revise|escalate",
                 "score": 0.0,
@@ -249,7 +284,9 @@ class ProviderReasoningEngine:
             },
         }
         model_payload = self._complete_json(
-            system_prompt="You are a governance reviewer. Return strict JSON with verdict and actionable feedback.",
+            node="reviewer_agent",
+            operation="review_report",
+            system_prompt=f"{REVIEWER_SYSTEM_PROMPT}\nReturn strict JSON with verdict and actionable feedback.",
             user_prompt=json.dumps(payload, ensure_ascii=False),
         )
 
@@ -262,17 +299,98 @@ class ProviderReasoningEngine:
             major_risks=[str(item) for item in model_payload.get("major_risks", [])],
         )
 
-    def _complete_json(self, *, system_prompt: str, user_prompt: str) -> dict[str, Any]:
-        raw = self.provider.complete(system_prompt=system_prompt, user_prompt=user_prompt)
+    def _complete_json(
+        self,
+        *,
+        node: str,
+        operation: str,
+        system_prompt: str,
+        user_prompt: str,
+    ) -> dict[str, Any]:
+        timestamp = datetime.now(UTC).isoformat()
+        started = monotonic()
+        input_text = f"System: {system_prompt}\n\nUser: {user_prompt}"
+        raw = ""
+        try:
+            raw = self.provider.complete(system_prompt=system_prompt, user_prompt=user_prompt)
+        except Exception as exc:
+            self._append_model_call(
+                ModelCallRecord(
+                    timestamp=timestamp,
+                    node=node,
+                    provider=str(getattr(self.provider, "name", "unknown")),
+                    model=_provider_model_name(self.provider),
+                    status="error",
+                    input_preview=_bounded_preview(input_text, MODEL_INPUT_PREVIEW_LIMIT),
+                    error=f"{type(exc).__name__}: {exc}",
+                    metadata={
+                        "operation": operation,
+                        "duration_ms": round((monotonic() - started) * 1000, 2),
+                        "input_chars": len(input_text),
+                        "output_chars": 0,
+                        "input_truncated": len(input_text) > MODEL_INPUT_PREVIEW_LIMIT,
+                        "output_truncated": False,
+                    },
+                )
+            )
+            raise
+
         payload = _extract_json(raw)
+        error = None if payload is not None else "Provider response is not valid JSON for the requested schema."
+        self._append_model_call(
+            ModelCallRecord(
+                timestamp=timestamp,
+                node=node,
+                provider=str(getattr(self.provider, "name", "unknown")),
+                model=_provider_model_name(self.provider),
+                status="success" if payload is not None else "error",
+                input_preview=_bounded_preview(input_text, MODEL_INPUT_PREVIEW_LIMIT),
+                output_preview=_bounded_preview(raw, MODEL_OUTPUT_PREVIEW_LIMIT),
+                error=error,
+                metadata={
+                    "operation": operation,
+                    "duration_ms": round((monotonic() - started) * 1000, 2),
+                    "input_chars": len(input_text),
+                    "output_chars": len(raw),
+                    "input_truncated": len(input_text) > MODEL_INPUT_PREVIEW_LIMIT,
+                    "output_truncated": len(raw) > MODEL_OUTPUT_PREVIEW_LIMIT,
+                },
+            )
+        )
         if payload is None:
             self.logger.error("Could not parse strict JSON from provider response.")
             raise RuntimeError("Provider response is not valid JSON for the requested schema.")
         return payload
 
+    def _append_model_call(self, record: ModelCallRecord) -> None:
+        self._model_calls.set((*self._model_calls.get(), record))
+
 
 def build_reasoning_engine(provider: BaseLLMProvider) -> BaseReasoningEngine:
     return ProviderReasoningEngine(provider=provider)
+
+
+def drain_model_call_history(reasoning: Any) -> list[ModelCallRecord]:
+    """Drain records when the concrete reasoning engine supports tracing."""
+    drain = getattr(reasoning, "drain_model_call_history", None)
+    if drain is None:
+        return []
+    return [
+        item if isinstance(item, ModelCallRecord) else ModelCallRecord.model_validate(item)
+        for item in drain()
+    ]
+
+
+def _provider_model_name(provider: BaseLLMProvider) -> str:
+    settings = getattr(provider, "settings", None)
+    return str(getattr(settings, "model", "unknown"))
+
+
+def _bounded_preview(value: str, limit: int) -> str:
+    text = str(value)
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "…"
 
 
 def _extract_json(raw: str) -> dict[str, Any] | None:

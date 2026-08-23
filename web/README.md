@@ -1,6 +1,6 @@
 # LangGraph AgentOps Studio Web Frontend
 
-This is the Web Frontend for LangGraph AgentOps Studio. It provides a Vite, React, and TypeScript console for launching workflow runs, checking backend/provider status, viewing returned run snapshots, inspecting artifact paths, and continuing human review gates.
+This is the Web Frontend for LangGraph AgentOps Studio. It provides a Vite, React, and TypeScript console for launching workflow runs, checking backend/provider status, viewing reports and artifacts, following live LangGraph checkpoints, and continuing human review gates.
 
 ## Install Dependencies
 
@@ -61,9 +61,10 @@ The frontend calls these existing backend endpoints:
 - `GET /health`
 - `GET /providers`
 - `POST /runs`
+- `GET /runs/{task_id}`
 - `POST /runs/{task_id}/continue`
 
-The current backend does not provide a separate run status polling endpoint. The UI displays the latest response returned by create run or continue run.
+The browser creates a task ID before submission and polls `GET /runs/{task_id}` while create or continue is pending. Open **Execution process** to inspect real node trace events, tool calls, model calls, and model output previews as checkpoints become available. A transient polling error or the expected pre-checkpoint `404` does not cancel the authoritative create/continue request.
 
 ## Troubleshooting
 

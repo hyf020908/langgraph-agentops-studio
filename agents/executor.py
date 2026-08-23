@@ -7,7 +7,7 @@ from __future__ import annotations
 from schemas.models import ArtifactRecord
 from services.runtime import AgentRuntime
 from services.serialization import to_jsonable
-from tools.factory import ToolRegistry
+from tools.factory import ToolRegistry, drain_tool_call_history
 
 
 def build_executor_node(runtime: AgentRuntime, tools: ToolRegistry):
@@ -40,12 +40,14 @@ def build_executor_node(runtime: AgentRuntime, tools: ToolRegistry):
                 "state_payload": to_jsonable(export_state),
             },
         )
+        export_tool_calls = drain_tool_call_history(tools)
         artifacts = [ArtifactRecord.model_validate(item) for item in export_payload["artifacts"]]
         final_trace = trace.model_copy(update={"metadata": {"artifact_count": len(artifacts)}})
         snapshot_state = {
             **export_state,
             "artifacts": artifacts,
             "execution_trace": full_trace + [final_trace],
+            "tool_call_history": list(state.get("tool_call_history", [])) + export_tool_calls,
         }
         tools.invoke(
             "local_storage_tool",
@@ -55,10 +57,12 @@ def build_executor_node(runtime: AgentRuntime, tools: ToolRegistry):
                 "payload": to_jsonable(snapshot_state),
             },
         )
+        storage_tool_calls = drain_tool_call_history(tools)
         return {
             "artifacts": artifacts,
             "status": "completed",
             "sender": "executor_agent",
+            "tool_call_history": export_tool_calls + storage_tool_calls,
             "execution_trace": [final_trace],
             "error_info": None,
         }

@@ -25,13 +25,50 @@ export interface ContinueRequest {
   rationale: string;
 }
 
+export interface TraceEvent {
+  timestamp: string;
+  node: string;
+  status: string;
+  message: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface ToolCallRecord {
+  timestamp: string;
+  node: string;
+  tool_name: string;
+  status: "success" | "error";
+  input_payload: Record<string, unknown>;
+  output_preview: string;
+  error: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface ModelCallRecord {
+  timestamp: string;
+  node: string;
+  provider: string;
+  model: string;
+  status: "success" | "error";
+  input_preview: string;
+  output_preview: string;
+  error: string | null;
+  metadata: Record<string, unknown>;
+}
+
 export interface RunResponse {
   task_id: string;
   status: string;
+  next_nodes: string[];
   approval_required: boolean;
   approval_payload: Record<string, unknown> | null;
   artifact_paths: string[];
   review_summary: string | null;
+  draft_report: string | null;
+  final_report: string | null;
+  execution_trace: TraceEvent[];
+  tool_call_history: ToolCallRecord[];
+  model_call_history: ModelCallRecord[];
 }
 
 export class ApiError extends Error {
@@ -80,6 +117,7 @@ export const apiClient = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  getRun: (taskId: string) => request<RunResponse>(`/runs/${encodeURIComponent(taskId)}`),
   continueRun: (taskId: string, payload: ContinueRequest) =>
     request<RunResponse>(`/runs/${encodeURIComponent(taskId)}/continue`, {
       method: "POST",

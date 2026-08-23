@@ -8,8 +8,9 @@ from __future__ import annotations
 from langgraph.types import Command, interrupt
 
 from schemas.models import ApprovalDecision
+from services.llm import drain_model_call_history
 from services.runtime import AgentRuntime
-from tools.factory import ToolRegistry
+from tools.factory import ToolRegistry, drain_tool_call_history
 
 
 def build_reviewer_node(runtime: AgentRuntime, tools: ToolRegistry):
@@ -33,6 +34,8 @@ def build_reviewer_node(runtime: AgentRuntime, tools: ToolRegistry):
                 "task_id": state["task_id"],
             },
         )
+        model_calls = drain_model_call_history(runtime.reasoning)
+        tool_calls = drain_tool_call_history(tools)
 
         # Escalation can come from the reviewer verdict or from governance-based
         # risk gates even when the reviewer text looks generally positive.
@@ -60,6 +63,8 @@ def build_reviewer_node(runtime: AgentRuntime, tools: ToolRegistry):
             "context_compaction_history": [compaction_event],
             "status": f"review_{feedback.verdict}",
             "sender": "reviewer_agent",
+            "model_call_history": model_calls,
+            "tool_call_history": tool_calls,
             "execution_trace": [trace, compaction_trace],
         }
         if feedback.verdict == "revise" and state.get("revision_count", 0) < runtime.settings.max_revisions:

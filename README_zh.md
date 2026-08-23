@@ -13,6 +13,7 @@ LangGraph AgentOps Studio 是一个基于 LangGraph 原生能力构建的 AgentO
 - 证据评估流水线，包含结构化评分维度、支持/矛盾分析和覆盖度度量。
 - 基于证据 grounding 的建议综合，输出置信度评分、开放问题和残余风险。
 - 基于策略的治理评估，提供明确的人工审阅升级标准。
+- 基于检查点的前端进度查询，展示节点轨迹、真实工具/模型调用以及模型输出预览。
 - 可审计工件集合（`final_report.md`、`decision_record.json`、`workflow_trace.json`、`run_artifact.json` 以及支持文件）。
 - Web 控制台，用于提交运行、审阅中断、检查 Provider 和发现工件路径。
 
@@ -76,7 +77,8 @@ cp .env.example .env
 ### 可选配置
 
 - 应用和运行时控制项：`APP_NAME`、`LOG_LEVEL`、`OUTPUT_ROOT`、`CHECKPOINT_MODE`、`MAX_RETRIES`、`MAX_REVISIONS`。
-- 远程 Qdrant：仅在使用托管 Qdrant 实例时，设置 `VECTOR_DB_PROVIDER=qdrant`、`QDRANT_URL`、`QDRANT_API_KEY` 和 `QDRANT_COLLECTION`。
+- 详细结论控制项：`REPORT_DETAIL_LEVEL`、`REPORT_MAX_FINDINGS_IN_CONCLUSION`、`REPORT_MAX_EVIDENCE_IN_CONCLUSION`、`REPORT_MAX_RISKS_IN_CONCLUSION` 和 `REPORT_INCLUDE_NEXT_ACTIONS`。
+- 向量存储：`VECTOR_DB_PROVIDER` 支持 Qdrant、Milvus、Weaviate、Chroma、pgvector、Pinecone 和测试用内存后端。Qdrant 仍是默认选项；其他客户端通过可选 extra 安装（例如 `pip install -e ".[milvus]"`），后端变量见 `docs/providers.md`。
 - 本地向量检索行为：调优 `RAG_SOURCE_DIR`、`RAG_TOP_K`、`RAG_CHUNK_SIZE`、`RAG_CHUNK_OVERLAP` 和 `RAG_SCORE_THRESHOLD`。
 - Web 证据 grounding：需要实时联网搜索时，设置 `ENABLE_WEB_SEARCH=true` 并提供 `TAVILY_API_KEY` 或 `EXA_API_KEY`。默认示例保持 `ENABLE_WEB_SEARCH=false`，避免本地运行依赖外部搜索或 reader provider。
 - 网络代理：如果联网搜索或页面读取卡顿、被阻断或超时，可以在后端 `.env` 中配置 `HTTP_PROXY` 和 `HTTPS_PROXY`，例如 `HTTP_PROXY=http://127.0.0.1:7890`。
@@ -135,6 +137,17 @@ curl -X POST http://127.0.0.1:8000/runs \
   -H "Content-Type: application/json" \
   -d '{"task":"Evaluate governance controls for a multi-agent platform.","task_type":"architecture","auto_approve":true}'
 ```
+
+POST 尚在执行时查询最新 LangGraph 检查点（创建请求中需使用前端预先生成的
+`task_id`）：
+
+```bash
+curl http://127.0.0.1:8000/runs/<task_id>
+```
+
+响应包含 `execution_trace`、`tool_call_history`、`model_call_history`、
+`next_nodes`、`draft_report` 和 `final_report`。精确轮询契约见
+[`docs/observability.md`](docs/observability.md)。
 
 在审批中断后恢复运行：
 
@@ -232,21 +245,50 @@ runs/demo-run/
 ## 界面概览
 
 <p align="center">
-  <img src="assets/1.png" alt="LangGraph AgentOps Studio Web 界面概览" width="760" />
+  <img src="assets/1.png" alt="LangGraph AgentOps Studio 首页总览，展示 serif 字体视觉风格、Provider 状态、工作流启动区和结果快照" width="760" />
+  <br />
+  <em>首页总览：工作流启动区与 Provider 状态栏。</em>
 </p>
 
 <p align="center">
-  <img src="assets/2.png" alt="LangGraph AgentOps Studio 运行结果和审阅界面" width="760" />
+  <img src="assets/2.png" alt="工作流运行中界面，展示任务表单、路由状态和实时执行过程入口" width="760" />
+  <br />
+  <em>运行中状态：展示路由进度和执行过程入口。</em>
+</p>
+
+<p align="center">
+  <img src="assets/3.png" alt="实时 LangGraph 执行面板，展示节点时间线、检查点轮询和模型调用数量" width="760" />
+  <br />
+  <em>实时 LangGraph 观测面板：展示检查点轮询和节点数量。</em>
+</p>
+
+<p align="center">
+  <img src="assets/4.png" alt="执行节点时间线，展示解析器和证据排序 ToolNode 事件、状态、时间戳及元数据" width="760" />
+  <br />
+  <em>节点时间线：展示 ToolNode 事件、状态、时间戳和可展开元数据。</em>
+</p>
+
+<p align="center">
+  <img src="assets/5.png" alt="执行过程工具页，展示研究 grounding 工具的输入和输出预览" width="760" />
+  <br />
+  <em>工具调用视图：展示研究 grounding 调用及其输出预览。</em>
+</p>
+
+<p align="center">
+  <img src="assets/6.png" alt="人工审阅门与详细证据报告并列界面，展示验收标准和比较分析结果" width="760" />
+  <br />
+  <em>人工审阅门与详细证据报告并列展示。</em>
 </p>
 
 ## Web 前端
 
-`web/` 应用提供一个玻璃拟态的 AgentOps 控制平面，包含：
+`web/` 应用提供一个纸张与森林绿风格的 AgentOps 控制平面，包含：
 
 - 带任务类型分类的任务提交（`general`、`architecture`、`security`、`finance`）；
 - 用于演示运行的自动审批开关；
 - 后端健康检查和 Provider 状态检查；
 - 运行结果快照，包括任务 ID、生命周期状态、Provider 详情、审阅摘要、决策上下文、工件路径和原始 JSON；
+- 基于检查点的执行过程查看，可查看节点事件、工具调用、模型调用、模型输出和下一调度节点；
 - 用于批准或拒绝中断运行的人工审阅面板。
 
 ## Web 目录结构

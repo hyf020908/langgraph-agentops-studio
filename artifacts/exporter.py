@@ -21,6 +21,7 @@ from schemas.models import (
     EvidenceRecord,
     FindingRecord,
     GovernanceEvaluation,
+    ModelCallRecord,
     RecommendationRecord,
     ReviewFeedback,
     SourceRecord,
@@ -105,6 +106,13 @@ def _coerce_tool_calls(state: AgentState) -> list[ToolCallRecord]:
     return [
         item if isinstance(item, ToolCallRecord) else ToolCallRecord.model_validate(item)
         for item in state.get("tool_call_history", [])
+    ]
+
+
+def _coerce_model_calls(state: AgentState) -> list[ModelCallRecord]:
+    return [
+        item if isinstance(item, ModelCallRecord) else ModelCallRecord.model_validate(item)
+        for item in state.get("model_call_history", [])
     ]
 
 
@@ -243,6 +251,10 @@ def render_final_report(state: AgentState) -> str:
 def _render_recommendation(recommendation: RecommendationRecord | None) -> str:
     if recommendation is None:
         return "No recommendation record available."
+    key_findings = "\n".join(f"- {item}" for item in recommendation.key_findings) or "- none"
+    tradeoffs = "\n".join(f"- {item}" for item in recommendation.tradeoffs) or "- none"
+    mitigations = "\n".join(f"- {item}" for item in recommendation.risk_mitigations) or "- none"
+    next_actions = "\n".join(f"- {item}" for item in recommendation.next_actions) or "- none"
     return (
         f"Type: `{recommendation.recommendation_type}`\n\n"
         f"Summary: {recommendation.summary}\n\n"
@@ -250,7 +262,11 @@ def _render_recommendation(recommendation: RecommendationRecord | None) -> str:
         f"Confidence: {recommendation.confidence_level:.2f}\n"
         f"Supporting Evidence IDs: {', '.join(recommendation.supporting_evidence_ids) or 'none'}\n"
         f"Unresolved Questions: {', '.join(recommendation.unresolved_questions) or 'none'}\n"
-        f"Residual Risks: {', '.join(recommendation.residual_risks) or 'none'}"
+        f"Residual Risks: {', '.join(recommendation.residual_risks) or 'none'}\n\n"
+        f"### Key Findings Behind the Conclusion\n{key_findings}\n\n"
+        f"### Alternatives and Trade-offs\n{tradeoffs}\n\n"
+        f"### Risk Mitigations\n{mitigations}\n\n"
+        f"### Next Actions\n{next_actions}"
     )
 
 
@@ -317,6 +333,7 @@ def build_workflow_trace(state: AgentState) -> dict[str, Any]:
         "status": state.get("status"),
         "trace": [event.model_dump() for event in _coerce_trace(state)],
         "tool_calls": [record.model_dump() for record in _coerce_tool_calls(state)],
+        "model_calls": [record.model_dump() for record in _coerce_model_calls(state)],
     }
 
 

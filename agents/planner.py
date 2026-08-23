@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage
 
+from services.llm import drain_model_call_history
 from services.runtime import AgentRuntime
 
 
@@ -33,6 +34,7 @@ def build_planner_node(runtime: AgentRuntime):
         # Planning is the only stage that directly expands the user's task into
         # a structured workflow contract for the downstream research loop.
         plan, acceptance_criteria, queries = runtime.reasoning.plan_task(state["user_request"])
+        model_calls = drain_model_call_history(runtime.reasoning)
         trace = runtime.trace(
             node="planner_agent",
             status="completed",
@@ -48,6 +50,7 @@ def build_planner_node(runtime: AgentRuntime):
             "next_step": "research_pipeline",
             "sender": "planner_agent",
             "messages": [AIMessage(content=f"Planning complete.\n{plan_summary}")],
+            "model_call_history": model_calls,
             "execution_trace": [trace],
             "error_info": None,
         }

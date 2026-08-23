@@ -163,6 +163,11 @@ class EvidencePipeline:
     def score_source_quality(source: SourceRecord) -> float:
         provider_weight = {
             "qdrant": 0.78,
+            "milvus": 0.78,
+            "weaviate": 0.78,
+            "chroma": 0.78,
+            "pgvector": 0.78,
+            "pinecone": 0.78,
             "tavily": 0.7,
             "exa": 0.74,
             "jina": 0.66,

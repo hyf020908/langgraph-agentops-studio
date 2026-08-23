@@ -28,6 +28,7 @@ pip-wheel-metadata/
 # Runtime outputs
 runs/
 .qdrant/
+.chroma/
 *.sqlite
 *.sqlite3
 

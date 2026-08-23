@@ -19,7 +19,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 load_dotenv(ROOT_DIR / ".env")
 
-from app.runner import WorkflowRunner
+from app.runner import RunNotFoundError, WorkflowRunner
 from schemas.models import ContinueRequest, IngestRequest, IngestResponse, RunRequest, RunResponse
 
 
@@ -78,6 +78,23 @@ def create_run(request: RunRequest) -> RunResponse:
         )
     except Exception as exc:  # pragma: no cover - defensive API wrapper
         logger.exception("Run creation failed.")
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return runner.summarize(state, interrupt_payload)
+
+
+@app.get("/runs/{task_id}", response_model=RunResponse)
+def inspect_run(task_id: str) -> RunResponse:
+    """Return the latest checkpoint so clients can poll a run in progress."""
+    try:
+        runner = get_runner()
+        state, interrupt_payload = runner.inspect(task_id)
+    except RunNotFoundError as exc:
+        # A client may poll immediately after starting POST /runs, before the
+        # first checkpoint is committed. Treating this as 404 keeps unknown and
+        # not-yet-visible thread IDs explicit and retryable.
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover - defensive API wrapper
+        logger.exception("Run inspection failed for task_id=%s.", task_id)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return runner.summarize(state, interrupt_payload)
 

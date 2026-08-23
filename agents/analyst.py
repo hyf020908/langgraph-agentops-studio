@@ -8,8 +8,9 @@ from __future__ import annotations
 from langchain_core.messages import AIMessage
 
 from schemas.models import FindingRecord
+from services.llm import drain_model_call_history
 from services.runtime import AgentRuntime
-from tools.factory import ToolRegistry
+from tools.factory import ToolRegistry, drain_tool_call_history
 
 
 def _ledger_field(ledger, field: str) -> list[str]:
@@ -75,6 +76,8 @@ def build_analyst_node(runtime: AgentRuntime, tools: ToolRegistry):
                 "governance_evaluation": governance.model_dump(),
             },
         )
+        model_calls = drain_model_call_history(runtime.reasoning)
+        tool_calls = drain_tool_call_history(tools)
 
         trace = runtime.trace(
             node="analyst_agent",
@@ -98,6 +101,8 @@ def build_analyst_node(runtime: AgentRuntime, tools: ToolRegistry):
             "status": "draft_ready",
             "sender": "analyst_agent",
             "messages": [AIMessage(content=f"Analysis complete.\n{finding_summary}")],
+            "model_call_history": model_calls,
+            "tool_call_history": tool_calls,
             "execution_trace": [trace],
             "error_info": None,
         }

@@ -22,6 +22,7 @@ from schemas.models import (
     TraceEvent,
 )
 from services.runtime import AgentRuntime
+from tools.factory import bound_tool_payload
 
 
 def _tool_messages(messages, name: str) -> list[ToolMessage]:
@@ -32,6 +33,86 @@ def _tool_messages(messages, name: str) -> list[ToolMessage]:
 
 def _dedupe_key(item: dict) -> str:
     return f"{item.get('provider', 'unknown')}|{item.get('source_type', 'unknown')}|{item.get('url', '')}|{item.get('chunk_id', '')}"
+
+
+def _collect_tool_call_records(messages, tool_names: set[str] | None = None) -> list[ToolCallRecord]:
+    """Build records from ToolNode's real AIMessage/ToolMessage exchange."""
+    messages = list(messages)
+    # Retry cycles retain the full LangGraph message history. Start at the most
+    # recent research briefing so already-checkpointed calls are not duplicated.
+    start_index = 0
+    for index, message in enumerate(messages):
+        if not isinstance(message, AIMessage):
+            continue
+        call_names = {str(call.get("name", "")) for call in getattr(message, "tool_calls", None) or []}
+        if "research_grounding_tool" in call_names:
+            start_index = index
+    messages = messages[start_index:]
+
+    calls_by_id: dict[str, dict] = {}
+    for message in messages:
+        if not isinstance(message, AIMessage):
+            continue
+        for call in getattr(message, "tool_calls", None) or []:
+            call_id = str(call.get("id", ""))
+            if call_id:
+                calls_by_id[call_id] = call
+
+    node_by_tool = {
+        "trace_logger_tool": "research_tools",
+        "research_grounding_tool": "research_tools",
+        "source_parser_tool": "parser_tools",
+        "evidence_ranker_tool": "ranking_tools",
+    }
+    records: list[ToolCallRecord] = []
+    for message in messages:
+        if not isinstance(message, ToolMessage):
+            continue
+        tool_name = str(getattr(message, "name", "") or "unknown")
+        if tool_name not in node_by_tool or (tool_names is not None and tool_name not in tool_names):
+            continue
+        tool_call_id = str(getattr(message, "tool_call_id", "") or "")
+        call = calls_by_id.get(tool_call_id, {})
+        raw_args = call.get("args", {})
+        input_payload = (
+            bound_tool_payload(raw_args)
+            if isinstance(raw_args, dict)
+            else {"raw": str(raw_args)[:500]}
+        )
+        raw_content = message.content if isinstance(message.content, str) else json.dumps(message.content, default=str)
+        status = "error" if getattr(message, "status", "success") == "error" else "success"
+        records.append(
+            ToolCallRecord(
+                node=node_by_tool[tool_name],
+                tool_name=tool_name,
+                status=status,
+                input_payload=input_payload,
+                output_preview=raw_content[:2000] + ("…" if len(raw_content) > 2000 else ""),
+                error=raw_content[:1000] if status == "error" else None,
+                metadata={
+                    "tool_call_id": tool_call_id,
+                    "output_chars": len(raw_content),
+                    "output_truncated": len(raw_content) > 2000,
+                },
+            )
+        )
+    return records
+
+
+def _tool_node_trace(records: list[ToolCallRecord]) -> list[TraceEvent]:
+    return [
+        TraceEvent(
+            timestamp=record.timestamp,
+            node=record.node,
+            status=record.status,
+            message=f"ToolNode executed {record.tool_name}.",
+            metadata={
+                "tool_name": record.tool_name,
+                "tool_call_id": record.metadata.get("tool_call_id"),
+            },
+        )
+        for record in records
+    ]
 
 
 def build_research_briefing_node(runtime: AgentRuntime):
@@ -113,6 +194,10 @@ def build_parse_sources_node(runtime: AgentRuntime):
         # Deduplication happens before normalization so parser/ranker stages do
         # not waste work on repeated vector/web hits for the same source.
         deduped = {_dedupe_key(item): SearchResult.model_validate(item).model_dump() for item in aggregated_results}
+        completed_tool_calls = _collect_tool_call_records(
+            state.get("messages", []),
+            {"trace_logger_tool", "research_grounding_tool"},
+        )
 
         tool_calls = [
             {
@@ -134,7 +219,8 @@ def build_parse_sources_node(runtime: AgentRuntime):
         return {
             "messages": [AIMessage(content="Normalizing source metadata.", tool_calls=tool_calls)],
             "sender": "research_agent",
-            "execution_trace": [trace],
+            "tool_call_history": completed_tool_calls,
+            "execution_trace": _tool_node_trace(completed_tool_calls) + [trace],
         }
 
     return parse_sources
@@ -153,6 +239,10 @@ def build_rank_evidence_node(runtime: AgentRuntime):
         # The evidence tool expects canonical `SourceRecord` payloads, not the
         # looser search result schema used during grounding.
         deduped = {_dedupe_key(item): SourceRecord.model_validate(item).model_dump() for item in parsed_sources}
+        completed_tool_calls = _collect_tool_call_records(
+            state.get("messages", []),
+            {"source_parser_tool"},
+        )
         tool_calls = [
             {
                 "name": "evidence_ranker_tool",
@@ -174,7 +264,8 @@ def build_rank_evidence_node(runtime: AgentRuntime):
         return {
             "messages": [AIMessage(content="Ranking evidence candidates.", tool_calls=tool_calls)],
             "sender": "research_agent",
-            "execution_trace": [trace],
+            "tool_call_history": completed_tool_calls,
+            "execution_trace": _tool_node_trace(completed_tool_calls) + [trace],
         }
 
     return rank_evidence
@@ -186,7 +277,6 @@ def build_collect_research_node(runtime: AgentRuntime):
         # from message history and materialize them into durable state fields.
         parser_messages = _tool_messages(state.get("messages", []), "source_parser_tool")
         ranker_messages = _tool_messages(state.get("messages", []), "evidence_ranker_tool")
-        grounding_messages = _tool_messages(state.get("messages", []), "research_grounding_tool")
         trace_messages = _tool_messages(state.get("messages", []), "trace_logger_tool")
 
         source_records = []
@@ -223,53 +313,10 @@ def build_collect_research_node(runtime: AgentRuntime):
             if payload.get("trace_event"):
                 trace_events.append(TraceEvent.model_validate(payload["trace_event"]))
 
-        tool_history = []
-        for message in grounding_messages:
-            try:
-                payload = json.loads(message.content)
-            except json.JSONDecodeError:
-                continue
-            query = payload.get("query", "")
-            result_count = len(payload.get("results", []))
-            providers = payload.get("providers", {})
-            tool_history.append(
-                ToolCallRecord(
-                    tool_name="research_grounding_tool",
-                    status="success",
-                    input_payload={"query": query},
-                    output_preview=(
-                        f"Merged {result_count} grounded result(s). "
-                        f"search={providers.get('web_search')} reader={providers.get('web_reader')}"
-                    ),
-                )
-            )
-
-        tool_history.extend(
-            [
-                ToolCallRecord(
-                    tool_name="source_parser_tool",
-                    status="success",
-                    input_payload={"result_count": len(source_records)},
-                    output_preview="Normalized grounded results into source records.",
-                ),
-                ToolCallRecord(
-                    tool_name="evidence_ranker_tool",
-                    status="success" if evidence_records else "error",
-                    input_payload={"source_count": len(source_records)},
-                    output_preview="Ranked source records into evidence statements." if evidence_records else "",
-                    error=None if evidence_records else "No evidence produced by ranker.",
-                ),
-            ]
+        tool_history = _collect_tool_call_records(
+            state.get("messages", []),
+            {"evidence_ranker_tool"},
         )
-        if trace_events:
-            tool_history.append(
-                ToolCallRecord(
-                    tool_name="trace_logger_tool",
-                    status="success",
-                    input_payload={"node": "research_pipeline"},
-                    output_preview="Recorded research dispatch trace event.",
-                )
-            )
 
         error_info = None
         status = "research_complete"
@@ -312,7 +359,7 @@ def build_collect_research_node(runtime: AgentRuntime):
             "evidence_supports": support_models,
             "coverage_record": coverage_model,
             "tool_call_history": tool_history,
-            "execution_trace": trace_events + [trace],
+            "execution_trace": trace_events + _tool_node_trace(tool_history) + [trace],
             "retry_count": retry_count,
             "error_info": error_info,
             "status": status,

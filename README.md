@@ -13,6 +13,7 @@ LangGraph AgentOps Studio is a LangGraph-native AgentOps workbench for multi-age
 - Evidence assessment pipeline with structured scoring dimensions, support/contradiction analysis, and coverage measurement.
 - Evidence-grounded recommendation synthesis with confidence scoring, open questions, and residual risk outputs.
 - Policy-based governance evaluation with explicit escalation criteria for human review.
+- Checkpoint-backed frontend progress inspection with node traces plus actual tool/model calls and model output previews.
 - Auditable artifact set (`final_report.md`, `decision_record.json`, `workflow_trace.json`, `run_artifact.json`, and supporting files).
 - Web console for run submission, interrupt review, provider inspection, and artifact path discovery.
 
@@ -76,7 +77,8 @@ No remote vector database is required for local development. The default vector 
 ### Optional Configuration
 
 - Application and runtime controls: `APP_NAME`, `LOG_LEVEL`, `OUTPUT_ROOT`, `CHECKPOINT_MODE`, `MAX_RETRIES`, `MAX_REVISIONS`.
-- Remote Qdrant: set `VECTOR_DB_PROVIDER=qdrant`, `QDRANT_URL`, `QDRANT_API_KEY`, and `QDRANT_COLLECTION` only when using a hosted Qdrant instance.
+- Detailed conclusion controls: `REPORT_DETAIL_LEVEL`, `REPORT_MAX_FINDINGS_IN_CONCLUSION`, `REPORT_MAX_EVIDENCE_IN_CONCLUSION`, `REPORT_MAX_RISKS_IN_CONCLUSION`, and `REPORT_INCLUDE_NEXT_ACTIONS`.
+- Vector stores: `VECTOR_DB_PROVIDER` supports Qdrant, Milvus, Weaviate, Chroma, pgvector, Pinecone, and an in-memory test backend. Qdrant remains the default; install another client with its optional extra (for example, `pip install -e ".[milvus]"`). See `docs/providers.md` for backend variables.
 - Local vector retrieval behavior: tune `RAG_SOURCE_DIR`, `RAG_TOP_K`, `RAG_CHUNK_SIZE`, `RAG_CHUNK_OVERLAP`, and `RAG_SCORE_THRESHOLD`.
 - Web evidence grounding: set `ENABLE_WEB_SEARCH=true` and provide either `TAVILY_API_KEY` or `EXA_API_KEY` when live web search is required. The default example keeps `ENABLE_WEB_SEARCH=false` so local runs do not depend on external search or reader providers.
 - Network proxy: if live web search or page reading is slow, blocked, or times out, configure `HTTP_PROXY` and `HTTPS_PROXY` in the backend `.env`, for example `HTTP_PROXY=http://127.0.0.1:7890`.
@@ -135,6 +137,17 @@ curl -X POST http://127.0.0.1:8000/runs \
   -H "Content-Type: application/json" \
   -d '{"task":"Evaluate governance controls for a multi-agent platform.","task_type":"architecture","auto_approve":true}'
 ```
+
+Inspect the latest LangGraph checkpoint while the POST is still running (use a
+client-generated `task_id` in the create payload):
+
+```bash
+curl http://127.0.0.1:8000/runs/<task_id>
+```
+
+The response includes `execution_trace`, `tool_call_history`,
+`model_call_history`, `next_nodes`, `draft_report`, and `final_report`. See
+[`docs/observability.md`](docs/observability.md) for the exact polling contract.
 
 Resume a run after an approval interrupt:
 
@@ -232,21 +245,50 @@ Compaction is fail-open. If embedding, summarization, artifact writing, or rehyd
 ## Interface Overview
 
 <p align="center">
-  <img src="assets/1.png" alt="LangGraph AgentOps Studio web interface overview" width="760" />
+  <img src="assets/1.png" alt="LangGraph AgentOps Studio landing dashboard with serif visual system, provider health strip, workflow launcher, and result snapshot" width="760" />
+  <br />
+  <em>Landing dashboard with the workflow launcher and provider status strip.</em>
 </p>
 
 <p align="center">
-  <img src="assets/2.png" alt="LangGraph AgentOps Studio run result and review interface" width="760" />
+  <img src="assets/2.png" alt="Live workflow run with task form, routing status, and a link to the live execution process" width="760" />
+  <br />
+  <em>Live run state with routing progress and the execution-process entry point.</em>
+</p>
+
+<p align="center">
+  <img src="assets/3.png" alt="Live LangGraph execution panel showing node timeline, checkpoint polling, and model call count" width="760" />
+  <br />
+  <em>Live LangGraph observability panel with checkpoint polling and node counts.</em>
+</p>
+
+<p align="center">
+  <img src="assets/4.png" alt="Execution node timeline with parser and ranking ToolNode events, statuses, timestamps, and metadata" width="760" />
+  <br />
+  <em>Node timeline with ToolNode events, statuses, timestamps, and expandable metadata.</em>
+</p>
+
+<p align="center">
+  <img src="assets/5.png" alt="Execution process tools tab showing research grounding tool input and output preview" width="760" />
+  <br />
+  <em>Tools view showing a research-grounding call and its output preview.</em>
+</p>
+
+<p align="center">
+  <img src="assets/6.png" alt="Human review gate beside a detailed evidence-grounded report with acceptance criteria and comparison findings" width="760" />
+  <br />
+  <em>Human review gate alongside a detailed evidence-grounded report.</em>
 </p>
 
 ## Web Frontend
 
-The `web/` application provides a glassmorphism AgentOps control plane with:
+The `web/` application provides a paper-and-forest AgentOps control plane with:
 
 - task submission with task-type classification (`general`, `architecture`, `security`, `finance`);
 - an auto-approval switch for demonstration runs;
 - backend health checks and provider status inspection;
 - run result snapshots with task ID, lifecycle status, provider details, review summary, decision context, artifact paths, and raw JSON;
+- checkpoint-backed execution process inspection for node events, tool calls, model calls, model outputs, and next scheduled nodes;
 - a human review panel for approving or rejecting interrupted runs.
 
 ## Web Directory Structure

@@ -12,7 +12,7 @@ llm:
   provider: openai_compatible
   model: gpt-4o-mini
   temperature: 0.2
-  max_tokens: 1200
+  max_tokens: 2200
   timeout: 60
 
 embedding:
@@ -28,6 +28,33 @@ vector_db:
   qdrant_api_key: null
   qdrant_collection: agentops_knowledge
   qdrant_local_path: .qdrant
+  milvus_uri: http://localhost:19530
+  milvus_token: null
+  milvus_db_name: default
+  milvus_collection: agentops_knowledge
+  weaviate_url: http://localhost:8080
+  weaviate_api_key: null
+  weaviate_collection: AgentOpsKnowledge
+  weaviate_grpc_host: null
+  weaviate_grpc_port: null
+  weaviate_grpc_secure: null
+  chroma_host: null
+  chroma_port: 8000
+  chroma_ssl: false
+  chroma_headers: {}
+  chroma_tenant: default_tenant
+  chroma_database: default_database
+  chroma_path: .chroma
+  chroma_collection: agentops_knowledge
+  pgvector_dsn: null
+  pgvector_schema: public
+  pgvector_table: agentops_knowledge
+  pinecone_api_key: null
+  pinecone_host: null
+  pinecone_index: agentops-knowledge
+  pinecone_namespace: agentops
+  pinecone_cloud: aws
+  pinecone_region: us-east-1
   timeout: 30
 
 rag:
@@ -92,3 +119,10 @@ context_compaction:
   trace_tail_size: 25
   semantic_dedupe_threshold: 0.90
   tool_offload_enabled: true
+
+reporting:
+  detail_level: detailed
+  max_findings_in_conclusion: 5
+  max_evidence_in_conclusion: 6
+  max_risks_in_conclusion: 5
+  include_next_actions: true

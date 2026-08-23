@@ -25,7 +25,7 @@ class LLMSettings(BaseModel):
     api_key: str | None = None
     base_url: str | None = None
     temperature: float = Field(default=0.2, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=1200, ge=64, le=8192)
+    max_tokens: int = Field(default=2200, ge=64, le=8192)
     timeout: float = Field(default=60.0, gt=0)
     extra_headers: dict[str, str] = Field(default_factory=dict)
     extra_kwargs: dict[str, Any] = Field(default_factory=dict)
@@ -44,11 +44,38 @@ class EmbeddingSettings(BaseModel):
 
 
 class VectorDBSettings(BaseModel):
-    provider: Literal["qdrant", "memory"] = "qdrant"
+    provider: Literal["qdrant", "milvus", "weaviate", "chroma", "pgvector", "pinecone", "memory"] = "qdrant"
     qdrant_url: str | None = None
     qdrant_api_key: str | None = None
     qdrant_collection: str = "agentops_knowledge"
     qdrant_local_path: str = ".qdrant"
+    milvus_uri: str = "http://localhost:19530"
+    milvus_token: str | None = None
+    milvus_db_name: str = "default"
+    milvus_collection: str = "agentops_knowledge"
+    weaviate_url: str = "http://localhost:8080"
+    weaviate_api_key: str | None = None
+    weaviate_collection: str = "AgentOpsKnowledge"
+    weaviate_grpc_host: str | None = None
+    weaviate_grpc_port: int | None = Field(default=None, ge=1, le=65535)
+    weaviate_grpc_secure: bool | None = None
+    chroma_host: str | None = None
+    chroma_port: int = Field(default=8000, ge=1, le=65535)
+    chroma_ssl: bool = False
+    chroma_headers: dict[str, str] = Field(default_factory=dict)
+    chroma_tenant: str = "default_tenant"
+    chroma_database: str = "default_database"
+    chroma_path: str = ".chroma"
+    chroma_collection: str = "agentops_knowledge"
+    pgvector_dsn: str | None = None
+    pgvector_schema: str = Field(default="public", pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    pgvector_table: str = Field(default="agentops_knowledge", pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    pinecone_api_key: str | None = None
+    pinecone_host: str | None = None
+    pinecone_index: str = "agentops-knowledge"
+    pinecone_namespace: str = "agentops"
+    pinecone_cloud: Literal["aws", "gcp", "azure"] = "aws"
+    pinecone_region: str = "us-east-1"
     timeout: float = Field(default=30.0, gt=0)
 
 
@@ -119,6 +146,17 @@ class ContextCompactionSettings(BaseModel):
     tool_offload_enabled: bool = True
 
 
+class ReportingSettings(BaseModel):
+    # Controls deterministic conclusion depth independently from provider token
+    # limits. Detailed remains the default, while deployments can choose a
+    # smaller surface for cost- or latency-sensitive interfaces.
+    detail_level: Literal["compact", "standard", "detailed"] = "detailed"
+    max_findings_in_conclusion: int = Field(default=5, ge=1, le=8)
+    max_evidence_in_conclusion: int = Field(default=6, ge=1, le=12)
+    max_risks_in_conclusion: int = Field(default=5, ge=1, le=10)
+    include_next_actions: bool = True
+
+
 class Settings(BaseModel):
     app_name: str = "LangGraph AgentOps Studio"
     log_level: str = "INFO"
@@ -141,6 +179,7 @@ class Settings(BaseModel):
     exa: ExaSettings = Field(default_factory=ExaSettings)
     governance: GovernanceSettings = Field(default_factory=GovernanceSettings)
     context_compaction: ContextCompactionSettings = Field(default_factory=ContextCompactionSettings)
+    reporting: ReportingSettings = Field(default_factory=ReportingSettings)
 
 
 def _load_yaml_defaults() -> dict[str, Any]:
@@ -188,6 +227,20 @@ def _optional_float_env(name: str, default: float | None) -> float | None:
     return float(raw)
 
 
+def _optional_int_env(name: str, default: int | None) -> int | None:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    return int(raw)
+
+
+def _optional_bool_env(name: str, default: bool | None) -> bool | None:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _optional_str_env(name: str, default: str | None = None) -> str | None:
     raw = os.getenv(name)
     if raw is None:
@@ -233,6 +286,7 @@ def load_settings() -> Settings:
     exa_defaults = defaults.get("exa", {})
     governance_defaults = defaults.get("governance", {})
     context_defaults = defaults.get("context_compaction", {})
+    reporting_defaults = defaults.get("reporting", {})
 
     return Settings.model_validate(
         {
@@ -256,7 +310,7 @@ def load_settings() -> Settings:
                 "api_key": _optional_str_env("LLM_API_KEY", llm_defaults.get("api_key")),
                 "base_url": _optional_str_env("LLM_BASE_URL", llm_defaults.get("base_url")),
                 "temperature": _float_env("LLM_TEMPERATURE", llm_defaults.get("temperature", 0.2)),
-                "max_tokens": _int_env("LLM_MAX_TOKENS", llm_defaults.get("max_tokens", 1200)),
+                "max_tokens": _int_env("LLM_MAX_TOKENS", llm_defaults.get("max_tokens", 2200)),
                 "timeout": _float_env("LLM_TIMEOUT", llm_defaults.get("timeout", 60.0)),
                 "extra_headers": _json_env("LLM_EXTRA_HEADERS_JSON", llm_defaults.get("extra_headers", {})),
                 "extra_kwargs": _json_env("LLM_EXTRA_KWARGS_JSON", llm_defaults.get("extra_kwargs", {})),
@@ -286,6 +340,93 @@ def load_settings() -> Settings:
                 "qdrant_local_path": os.getenv(
                     "QDRANT_LOCAL_PATH",
                     vector_defaults.get("qdrant_local_path", ".qdrant"),
+                ),
+                "milvus_uri": os.getenv(
+                    "MILVUS_URI",
+                    vector_defaults.get("milvus_uri", "http://localhost:19530"),
+                ),
+                "milvus_token": _optional_str_env("MILVUS_TOKEN", vector_defaults.get("milvus_token")),
+                "milvus_db_name": os.getenv(
+                    "MILVUS_DB_NAME",
+                    vector_defaults.get("milvus_db_name", "default"),
+                ),
+                "milvus_collection": os.getenv(
+                    "MILVUS_COLLECTION",
+                    vector_defaults.get("milvus_collection", "agentops_knowledge"),
+                ),
+                "weaviate_url": os.getenv(
+                    "WEAVIATE_URL",
+                    vector_defaults.get("weaviate_url", "http://localhost:8080"),
+                ),
+                "weaviate_api_key": _optional_str_env(
+                    "WEAVIATE_API_KEY",
+                    vector_defaults.get("weaviate_api_key"),
+                ),
+                "weaviate_collection": os.getenv(
+                    "WEAVIATE_COLLECTION",
+                    vector_defaults.get("weaviate_collection", "AgentOpsKnowledge"),
+                ),
+                "weaviate_grpc_host": _optional_str_env(
+                    "WEAVIATE_GRPC_HOST",
+                    vector_defaults.get("weaviate_grpc_host"),
+                ),
+                "weaviate_grpc_port": _optional_int_env(
+                    "WEAVIATE_GRPC_PORT",
+                    vector_defaults.get("weaviate_grpc_port"),
+                ),
+                "weaviate_grpc_secure": _optional_bool_env(
+                    "WEAVIATE_GRPC_SECURE",
+                    vector_defaults.get("weaviate_grpc_secure"),
+                ),
+                "chroma_host": _optional_str_env("CHROMA_HOST", vector_defaults.get("chroma_host")),
+                "chroma_port": _int_env("CHROMA_PORT", vector_defaults.get("chroma_port", 8000)),
+                "chroma_ssl": _to_bool(os.getenv("CHROMA_SSL"), vector_defaults.get("chroma_ssl", False)),
+                "chroma_headers": _dict_env(
+                    "CHROMA_HEADERS_JSON",
+                    vector_defaults.get("chroma_headers", {}),
+                ),
+                "chroma_tenant": os.getenv(
+                    "CHROMA_TENANT",
+                    vector_defaults.get("chroma_tenant", "default_tenant"),
+                ),
+                "chroma_database": os.getenv(
+                    "CHROMA_DATABASE",
+                    vector_defaults.get("chroma_database", "default_database"),
+                ),
+                "chroma_path": os.getenv("CHROMA_PATH", vector_defaults.get("chroma_path", ".chroma")),
+                "chroma_collection": os.getenv(
+                    "CHROMA_COLLECTION",
+                    vector_defaults.get("chroma_collection", "agentops_knowledge"),
+                ),
+                "pgvector_dsn": _optional_str_env("PGVECTOR_DSN", vector_defaults.get("pgvector_dsn")),
+                "pgvector_schema": os.getenv(
+                    "PGVECTOR_SCHEMA",
+                    vector_defaults.get("pgvector_schema", "public"),
+                ),
+                "pgvector_table": os.getenv(
+                    "PGVECTOR_TABLE",
+                    vector_defaults.get("pgvector_table", "agentops_knowledge"),
+                ),
+                "pinecone_api_key": _optional_str_env(
+                    "PINECONE_API_KEY",
+                    vector_defaults.get("pinecone_api_key"),
+                ),
+                "pinecone_host": _optional_str_env("PINECONE_HOST", vector_defaults.get("pinecone_host")),
+                "pinecone_index": os.getenv(
+                    "PINECONE_INDEX",
+                    vector_defaults.get("pinecone_index", "agentops-knowledge"),
+                ),
+                "pinecone_namespace": os.getenv(
+                    "PINECONE_NAMESPACE",
+                    vector_defaults.get("pinecone_namespace", "agentops"),
+                ),
+                "pinecone_cloud": os.getenv(
+                    "PINECONE_CLOUD",
+                    vector_defaults.get("pinecone_cloud", "aws"),
+                ),
+                "pinecone_region": os.getenv(
+                    "PINECONE_REGION",
+                    vector_defaults.get("pinecone_region", "us-east-1"),
                 ),
                 "timeout": _float_env("VECTOR_DB_TIMEOUT", vector_defaults.get("timeout", 30.0)),
             },
@@ -413,6 +554,28 @@ def load_settings() -> Settings:
                 "tool_offload_enabled": _to_bool(
                     os.getenv("CONTEXT_TOOL_OFFLOAD_ENABLED"),
                     context_defaults.get("tool_offload_enabled", True),
+                ),
+            },
+            "reporting": {
+                "detail_level": os.getenv(
+                    "REPORT_DETAIL_LEVEL",
+                    reporting_defaults.get("detail_level", "detailed"),
+                ),
+                "max_findings_in_conclusion": _int_env(
+                    "REPORT_MAX_FINDINGS_IN_CONCLUSION",
+                    reporting_defaults.get("max_findings_in_conclusion", 5),
+                ),
+                "max_evidence_in_conclusion": _int_env(
+                    "REPORT_MAX_EVIDENCE_IN_CONCLUSION",
+                    reporting_defaults.get("max_evidence_in_conclusion", 6),
+                ),
+                "max_risks_in_conclusion": _int_env(
+                    "REPORT_MAX_RISKS_IN_CONCLUSION",
+                    reporting_defaults.get("max_risks_in_conclusion", 5),
+                ),
+                "include_next_actions": _to_bool(
+                    os.getenv("REPORT_INCLUDE_NEXT_ACTIONS"),
+                    reporting_defaults.get("include_next_actions", True),
                 ),
             },
         }

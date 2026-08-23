@@ -118,6 +118,10 @@ def write_report(
     )
 
     if recommendation_model:
+        key_finding_lines = "\n".join(f"- {item}" for item in recommendation_model.key_findings) or "- none"
+        tradeoff_lines = "\n".join(f"- {item}" for item in recommendation_model.tradeoffs) or "- none"
+        mitigation_lines = "\n".join(f"- {item}" for item in recommendation_model.risk_mitigations) or "- none"
+        next_action_lines = "\n".join(f"- {item}" for item in recommendation_model.next_actions) or "- none"
         recommendation_block = (
             f"Type: `{recommendation_model.recommendation_type}`\n"
             f"Confidence: {recommendation_model.confidence_level:.2f}\n"
@@ -125,7 +129,11 @@ def write_report(
             f"Rationale: {recommendation_model.rationale}\n\n"
             f"Supporting Evidence IDs: {', '.join(recommendation_model.supporting_evidence_ids) or 'none'}\n"
             f"Unresolved Questions: {', '.join(recommendation_model.unresolved_questions) or 'none'}\n"
-            f"Residual Risks: {', '.join(recommendation_model.residual_risks) or 'none'}"
+            f"Residual Risks: {', '.join(recommendation_model.residual_risks) or 'none'}\n\n"
+            f"### Key Findings Behind the Conclusion\n{key_finding_lines}\n\n"
+            f"### Alternatives and Trade-offs\n{tradeoff_lines}\n\n"
+            f"### Risk Mitigations\n{mitigation_lines}\n\n"
+            f"### Next Actions\n{next_action_lines}"
         )
     else:
         recommendation_block = (

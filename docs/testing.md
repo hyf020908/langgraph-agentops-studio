@@ -5,6 +5,11 @@
 These tests run without external network calls and validate deterministic logic:
 
 - `tests/test_config.py`
+- `tests/test_vectorstore.py` (fake clients; no vector database services required)
+- `tests/test_observability.py` (real in-memory LangGraph checkpoint plus bounded call ledgers)
+- `tests/test_api_runs.py`
+- `tests/test_recommendation_detail.py`
+- `tests/test_reporting_config.py`
 - `tests/test_evidence_pipeline.py`
 - `tests/test_governance.py`
 - `tests/test_grounding_merge.py`
@@ -12,8 +17,13 @@ These tests run without external network calls and validate deterministic logic:
 Run:
 
 ```bash
-pytest tests/test_config.py tests/test_evidence_pipeline.py tests/test_governance.py tests/test_grounding_merge.py
+pytest tests/test_config.py tests/test_vectorstore.py tests/test_evidence_pipeline.py tests/test_governance.py tests/test_grounding_merge.py
 ```
+
+Run the complete backend regression suite with `pytest -q`. For the frontend,
+`npm run build` runs strict TypeScript checking before the Vite production
+build; production preview should also be checked at desktop and mobile widths
+after visual changes.
 
 ## Layer 2: Integration Smoke Tests
 

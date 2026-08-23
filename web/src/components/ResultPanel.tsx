@@ -1,5 +1,8 @@
+import { useCallback, useState } from "react";
 import type { ProvidersResponse, RunResponse } from "../api/client";
+import { ExecutionPanel } from "./ExecutionPanel";
 import { JsonView } from "./JsonView";
+import { MarkdownReport } from "./MarkdownReport";
 import { StatusBadge } from "./StatusBadge";
 
 interface ResultPanelProps {
@@ -15,8 +18,12 @@ function statusTone(run: RunResponse | null) {
   if (run.approval_required) {
     return "warning";
   }
-  if (run.status.toLowerCase().includes("error") || run.status.toLowerCase().includes("failed")) {
+  const status = run.status.toLowerCase();
+  if (status.includes("error") || status.includes("failed")) {
     return "danger";
+  }
+  if (status.includes("waiting") || status.includes("running") || status.includes("progress")) {
+    return "neutral";
   }
   return "success";
 }
@@ -27,6 +34,15 @@ function artifactName(path: string) {
 }
 
 export function ResultPanel({ run, providers, isLoading }: ResultPanelProps) {
+  const [isExecutionOpen, setIsExecutionOpen] = useState(false);
+  const closeExecution = useCallback(() => setIsExecutionOpen(false), []);
+  const executionEventCount =
+    (run?.execution_trace?.length ?? 0) +
+    (run?.tool_call_history?.length ?? 0) +
+    (run?.model_call_history?.length ?? 0);
+  const report = run?.final_report ?? run?.draft_report ?? run?.review_summary;
+  const reportLabel = run?.final_report ? "Final report" : run?.draft_report ? "Draft report" : "Review summary";
+
   return (
     <section className="panel result-panel">
       <div className="panel__header">
@@ -34,7 +50,26 @@ export function ResultPanel({ run, providers, isLoading }: ResultPanelProps) {
           <p className="eyebrow">Run intelligence</p>
           <h2>Result snapshot</h2>
         </div>
-        <StatusBadge label={run?.status ?? (isLoading ? "running" : "idle")} tone={statusTone(run)} />
+        <div className="result-actions">
+          <button
+            type="button"
+            className="execution-trigger"
+            disabled={!run}
+            aria-expanded={isExecutionOpen}
+            onClick={() => setIsExecutionOpen(true)}
+          >
+            <span className="execution-trigger__icon" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+            <span>
+              Execution process
+              <small>{isLoading ? "tracking live" : `${executionEventCount} events`}</small>
+            </span>
+          </button>
+          <StatusBadge label={run?.status ?? (isLoading ? "running" : "idle")} tone={statusTone(run)} />
+        </div>
       </div>
 
       {!run && !isLoading && (
@@ -48,11 +83,16 @@ export function ResultPanel({ run, providers, isLoading }: ResultPanelProps) {
       {isLoading && (
         <div className="loading-state" role="status">
           <span />
-          <p>Running the workflow graph...</p>
+          <div>
+            <p>Running the workflow graph…</p>
+            <button type="button" onClick={() => setIsExecutionOpen(true)} disabled={!run}>
+              Open live execution process
+            </button>
+          </div>
         </div>
       )}
 
-      {run && (
+      {run && !isLoading && (
         <div className="result-stack">
           <div className="metric-grid">
             <div className="metric-tile">
@@ -69,18 +109,19 @@ export function ResultPanel({ run, providers, isLoading }: ResultPanelProps) {
             </div>
           </div>
 
-          <article className="report-block">
-            <span>Final report / summary</span>
-            <p>{run.review_summary ?? "The backend response did not include a review summary for this run."}</p>
+          <article className="report-block report-block--primary">
+            <span>{reportLabel}</span>
+            <MarkdownReport
+              content={report ?? "The backend response did not include a report or review summary for this run."}
+            />
           </article>
 
-          <article className="report-block">
-            <span>Decision record</span>
-            <p>
-              Decision details are exported as artifacts when the workflow reaches export. The current API snapshot
-              exposes approval gate data and artifact paths.
-            </p>
-          </article>
+          {run.review_summary && run.review_summary !== report && (
+            <article className="report-block">
+              <span>Review summary</span>
+              <p>{run.review_summary}</p>
+            </article>
+          )}
 
           <div className="artifact-list">
             <div className="artifact-list__header">
@@ -105,6 +146,8 @@ export function ResultPanel({ run, providers, isLoading }: ResultPanelProps) {
           <JsonView title="Raw JSON" value={run} />
         </div>
       )}
+
+      <ExecutionPanel run={run} isLoading={isLoading} isOpen={isExecutionOpen} onClose={closeExecution} />
     </section>
   );
 }

@@ -14,6 +14,11 @@ from pydantic import BaseModel, Field
 SourceType = Literal["vector", "web_search", "webpage", "unknown"]
 ProviderType = Literal[
     "qdrant",
+    "milvus",
+    "weaviate",
+    "chroma",
+    "pgvector",
+    "pinecone",
     "tavily",
     "jina",
     "exa",
@@ -233,6 +238,13 @@ class RecommendationRecord(BaseModel):
     supporting_evidence_ids: list[str] = Field(default_factory=list)
     unresolved_questions: list[str] = Field(default_factory=list)
     residual_risks: list[str] = Field(default_factory=list)
+    # These explicit sections keep the conclusion detailed without hiding
+    # decision logic in an unstructured paragraph. Older snapshots remain
+    # valid because every new field has a default.
+    key_findings: list[str] = Field(default_factory=list)
+    tradeoffs: list[str] = Field(default_factory=list)
+    risk_mitigations: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
 
 
 class GovernanceEvaluation(BaseModel):
@@ -259,12 +271,30 @@ class ReviewFeedback(BaseModel):
 
 
 class ToolCallRecord(BaseModel):
-    # Lightweight audit trail for tool usage captured during research/export.
+    # Auditable tool invocation captured from actual ToolNode messages or the
+    # synchronous registry boundary.
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    node: str = "unknown"
     tool_name: str
     status: Literal["success", "error"]
     input_payload: dict[str, Any] = Field(default_factory=dict)
     output_preview: str = ""
     error: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ModelCallRecord(BaseModel):
+    # A provider-boundary record: input/output are intentionally bounded
+    # previews while metadata retains lengths, operation, and duration.
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    node: str
+    provider: str
+    model: str
+    status: Literal["success", "error"]
+    input_preview: str = ""
+    output_preview: str = ""
+    error: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class TraceEvent(BaseModel):
@@ -345,3 +375,9 @@ class RunResponse(BaseModel):
     approval_payload: dict[str, Any] | None = None
     artifact_paths: list[str] = Field(default_factory=list)
     review_summary: str | None = None
+    execution_trace: list[TraceEvent] = Field(default_factory=list)
+    tool_call_history: list[ToolCallRecord] = Field(default_factory=list)
+    model_call_history: list[ModelCallRecord] = Field(default_factory=list)
+    draft_report: str | None = None
+    final_report: str | None = None
+    next_nodes: list[str] = Field(default_factory=list)

@@ -32,6 +32,28 @@ dev = [
 observability = [
   "langsmith>=0.1.130",
 ]
+milvus = [
+  "pymilvus>=2.5.0",
+]
+weaviate = [
+  "weaviate-client>=4.16.4",
+]
+chroma = [
+  "chromadb>=0.5.23",
+]
+pgvector = [
+  "psycopg[binary]>=3.2.0",
+]
+pinecone = [
+  "pinecone>=9.0.0",
+]
+vectorstores = [
+  "pymilvus>=2.5.0",
+  "weaviate-client>=4.16.4",
+  "chromadb>=0.5.23",
+  "psycopg[binary]>=3.2.0",
+  "pinecone>=9.0.0",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
