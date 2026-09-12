@@ -9,7 +9,9 @@ LangGraph AgentOps Studio 是一个基于 LangGraph 原生能力构建的 AgentO
 - 基于图的编排，使用 `StateGraph`、`ToolNode`、`Command`、`interrupt` 和检查点支持的恢复语义。
 - 基于角色的多智能体工作流：规划器、研究流水线、分析员、审阅员、HITL 审批关口、执行器和监督器。
 - Provider 托管的 LLM 与 Embedding 客户端（`openai`、`deepseek`、`openai_compatible`）。
-- 混合式证据 grounding，覆盖向量检索和 Web 证据源（Tavily + Jina，或 Exa search + content extraction）。
+- 混合知识检索，结合 BM25、向量召回、RRF 融合与可配置重排序，并接入 Web 证据源（Tavily + Jina，或 Exa search + content extraction）。
+- 基于 RabbitMQ 的任务执行，支持独立 worker、持久化任务与 outbox、并发准入和重复投递保护。
+- Provider 并发限制与熔断、SQLite 检查点、工件原子写入和运行指标。
 - 证据评估流水线，包含结构化评分维度、支持/矛盾分析和覆盖度度量。
 - 基于证据 grounding 的建议综合，输出置信度评分、开放问题和残余风险。
 - 基于策略的治理评估，提供明确的人工审阅升级标准。
@@ -77,20 +79,37 @@ cp .env.example .env
 ### 可选配置
 
 - 应用和运行时控制项：`APP_NAME`、`LOG_LEVEL`、`OUTPUT_ROOT`、`CHECKPOINT_MODE`、`MAX_RETRIES`、`MAX_REVISIONS`。
+- 任务执行：`TASK_QUEUE_MODE` 选择 `inline` 或 `rabbitmq`；`MAX_CONCURRENT_RUNS` 限制 worker 并发数，`MAX_PENDING_JOBS` 限制持久化任务积压。RabbitMQ 模式要求配置 `RABBITMQ_URL`、使用 SQLite 检查点，并在选择 Qdrant 时使用服务端模式。
 - 详细结论控制项：`REPORT_DETAIL_LEVEL`、`REPORT_MAX_FINDINGS_IN_CONCLUSION`、`REPORT_MAX_EVIDENCE_IN_CONCLUSION`、`REPORT_MAX_RISKS_IN_CONCLUSION` 和 `REPORT_INCLUDE_NEXT_ACTIONS`。
 - 向量存储：`VECTOR_DB_PROVIDER` 支持 Qdrant、Milvus、Weaviate、Chroma、pgvector、Pinecone 和测试用内存后端。Qdrant 仍是默认选项；其他客户端通过可选 extra 安装（例如 `pip install -e ".[milvus]"`），后端变量见 `docs/providers.md`。
-- 本地向量检索行为：调优 `RAG_SOURCE_DIR`、`RAG_TOP_K`、`RAG_CHUNK_SIZE`、`RAG_CHUNK_OVERLAP` 和 `RAG_SCORE_THRESHOLD`。
+- 知识检索：调优 `RAG_SOURCE_DIR`、`RAG_TOP_K`、`RAG_CHUNK_SIZE`、`RAG_CHUNK_OVERLAP`，其中 `RAG_SCORE_THRESHOLD` 仅作用于向量召回。混合召回使用 `RAG_HYBRID_ENABLED`、`RAG_LEXICAL_PATH`、`RAG_CANDIDATE_K` 和 `RAG_RRF_K`。
+- 重排序：`RAG_RERANK_PROVIDER=http` 使用模型服务，通过 `RAG_RERANK_URL`、`RAG_RERANK_MODEL` 和可选的 `RAG_RERANK_API_KEY` 配置。默认 `lexical` 模式使用本地词项覆盖率，`none` 保留 RRF 顺序；HTTP 重排序失败时回退到 RRF。
 - Web 证据 grounding：需要实时联网搜索时，设置 `ENABLE_WEB_SEARCH=true` 并提供 `TAVILY_API_KEY` 或 `EXA_API_KEY`。默认示例保持 `ENABLE_WEB_SEARCH=false`，避免本地运行依赖外部搜索或 reader provider。
 - 网络代理：如果联网搜索或页面读取卡顿、被阻断或超时，可以在后端 `.env` 中配置 `HTTP_PROXY` 和 `HTTPS_PROXY`，例如 `HTTP_PROXY=http://127.0.0.1:7890`。
 - Tavily + Jina 模式：配置 `WEB_SEARCH_MODE=tavily_jina`、`TAVILY_*`，并可选配置 `JINA_*` reader 设置。
 - Exa 模式：配置 `WEB_SEARCH_MODE=exa`、`EXA_*` 和 `EXA_USE_CONTENTS`。
 - 治理策略阈值：调优 `GOVERNANCE_*`、`RISK_THRESHOLD_FOR_HUMAN_REVIEW` 和 `GOVERNANCE_MANUAL_APPROVAL_POLICY_BY_TASK_TYPE_JSON`。
 
-## 构建向量索引
+## 构建知识索引
+
+文档摄取会写入向量库，并在启用混合检索时写入持久化 BM25 索引。重建索引属于离线维护操作。
 
 ```bash
 python app/ingest.py --source-dir examples/knowledge_base --recreate-collection
 ```
+
+## 部署
+
+在 `.env` 中配置 Provider 凭据和 `RABBITMQ_PASSWORD`，然后启动 API、worker、RabbitMQ 与 Qdrant：
+
+```bash
+docker compose up --build -d
+docker compose exec api python -m app.ingest --source-dir /knowledge
+```
+
+部署使用共享本地数据卷保存任务元数据、检查点、BM25 索引和工件，支持同一主机上的多个 worker 进程，不提供跨主机数据库存储或租户隔离。API 应通过认证网关访问。`/health`、`/ready` 和 `/metrics` 分别提供存活检查、运行时就绪检查和请求指标。
+
+容量参数、消息投递语义、故障恢复和部署边界见[生产运行说明](docs/production.md)。
 
 ## 使用方式
 
@@ -149,6 +168,8 @@ curl http://127.0.0.1:8000/runs/<task_id>
 `next_nodes`、`draft_report` 和 `final_report`。精确轮询契约见
 [`docs/observability.md`](docs/observability.md)。
 
+在 RabbitMQ 模式下，创建或恢复请求附加 `?wait=false` 可立即获得 HTTP 202。随后轮询运行状态，将 `queue_job_id` 与提交的操作对应，直到 `queue_status` 为 `done` 或 `failed`。队列操作完成后，工作流仍可能需要人工审批。详见[队列请求契约](docs/production.md#request-and-delivery-contracts)。
+
 在审批中断后恢复运行：
 
 ```bash
@@ -162,8 +183,10 @@ curl -X POST http://127.0.0.1:8000/runs/<task_id>/continue \
 ```bash
 curl -X POST http://127.0.0.1:8000/ingest \
   -H "Content-Type: application/json" \
-  -d '{"source_dir":"examples/knowledge_base","recreate_collection":true}'
+  -d '{}'
 ```
+
+API 从 `RAG_SOURCE_DIR` 摄取文档；可选的 `source_dir` 必须位于该目录内。集合重建仅通过离线 CLI 维护执行。
 
 ### 3. Web 前端模式
 
@@ -194,7 +217,7 @@ http://127.0.0.1:5173
 VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
-当前 API 不提供专用的运行状态轮询端点。Web 前端显示由创建运行或恢复运行请求返回的最新响应。
+前端通过 `GET /runs/{task_id}` 轮询执行进度。在 RabbitMQ 模式下，前端跟踪提交的队列操作直至完成或失败，并在需要审批时展示人工审阅面板。
 
 ## 运行产物
 
@@ -317,7 +340,7 @@ web/
 确定性单元测试：
 
 ```bash
-pytest tests/test_config.py tests/test_evidence_pipeline.py tests/test_governance.py tests/test_grounding_merge.py
+python -m pytest -q -p no:cacheprovider
 ```
 
 集成冒烟测试（网络访问 + Provider 凭据）：
@@ -325,6 +348,8 @@ pytest tests/test_config.py tests/test_evidence_pipeline.py tests/test_governanc
 ```bash
 RUN_REAL_WEB_GROUNDING=1 pytest tests/integration/test_real_web_grounding.py
 RUN_REAL_PROVIDER_RUN=1 pytest tests/integration/test_real_provider_run.py
+# 运行前将 RABBITMQ_TEST_URL 设置为独立测试 broker 的地址：
+pytest tests/integration/test_rabbitmq_delivery.py
 ```
 
 集成测试受环境变量控制，并会在缺少所需密钥时自动跳过。
@@ -353,6 +378,7 @@ npm run build
 
 ## 文档
 
+- [生产运行说明](docs/production.md)
 - `docs/architecture.md`
 - `docs/providers.md`
 - `docs/rag.md`

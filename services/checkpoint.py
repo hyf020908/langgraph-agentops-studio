@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import logging
+import sqlite3
 from pathlib import Path
 
 from schemas.models import (
@@ -22,6 +22,11 @@ from schemas.models import (
     SupportRecord,
     ToolCallRecord,
     TraceEvent,
+    ContextArtifactPointer,
+    ContextCompactionEvent,
+    EvidenceCompactionMap,
+    EvidenceDigest,
+    RevisionLedger,
 )
 from services.config import Settings
 
@@ -48,6 +53,11 @@ def build_checkpointer(settings: Settings):
         SupportRecord,
         ToolCallRecord,
         TraceEvent,
+        ContextArtifactPointer,
+        ContextCompactionEvent,
+        EvidenceCompactionMap,
+        EvidenceDigest,
+        RevisionLedger,
     ]
     try:
         serde = JsonPlusSerializer(allowed_msgpack_modules=allowed_modules)
@@ -55,17 +65,20 @@ def build_checkpointer(settings: Settings):
         serde = JsonPlusSerializer()
 
     if settings.checkpoint_mode.lower() == "sqlite":
-        try:
-            from langgraph.checkpoint.sqlite import SqliteSaver
+        from langgraph.checkpoint.sqlite import SqliteSaver
 
-            checkpoint_path = Path(settings.output_root) / "checkpoints.sqlite"
-            checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-            return SqliteSaver.from_conn_string(str(checkpoint_path), serde=serde)
-        except Exception as exc:  # pragma: no cover - optional dependency path
-            logging.getLogger("agentops").warning(
-                "Falling back to MemorySaver because SQLite checkpointing failed: %s",
-                exc,
-            )
+        checkpoint_path = Path(settings.output_root) / "checkpoints.sqlite"
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(checkpoint_path), check_same_thread=False, timeout=30)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=FULL")
+            saver = SqliteSaver(conn, serde=serde)
+            saver.setup()
+            return saver
+        except Exception:
+            conn.close()
+            raise
 
     from langgraph.checkpoint.memory import MemorySaver
 

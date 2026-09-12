@@ -17,8 +17,10 @@ from typing import Any, Protocol
 from prompts.analyst import ANALYST_SYSTEM_PROMPT
 from prompts.planner import PLANNER_SYSTEM_PROMPT
 from prompts.reviewer import REVIEWER_SYSTEM_PROMPT
+from prompts.common import PROMPT_VERSION
 from schemas.models import EvidenceRecord, FindingRecord, ModelCallRecord, PlanStep, ReviewFeedback
 from services.config import LLMSettings
+from services.resilience import ProviderGuard
 
 
 MODEL_INPUT_PREVIEW_LIMIT = 1600
@@ -38,6 +40,7 @@ class OpenAICompatibleProvider:
     default_base_url: str | None = None
     name: str = "openai_compatible"
     _client: Any = field(init=False, default=None)
+    _guard: ProviderGuard = field(init=False, default_factory=ProviderGuard)
 
     def __post_init__(self) -> None:
         try:
@@ -52,6 +55,7 @@ class OpenAICompatibleProvider:
         client_kwargs: dict[str, Any] = {
             "api_key": self.settings.api_key,
             "timeout": self.settings.timeout,
+            "max_retries": 2,
         }
         if base_url:
             client_kwargs["base_url"] = base_url
@@ -60,6 +64,10 @@ class OpenAICompatibleProvider:
         self._client = OpenAI(**client_kwargs)
 
     def complete(self, *, system_prompt: str, user_prompt: str) -> str:
+        with self._guard.call():
+            return self._complete(system_prompt=system_prompt, user_prompt=user_prompt)
+
+    def _complete(self, *, system_prompt: str, user_prompt: str) -> str:
         # The project uses plain chat completion requests and keeps response
         # parsing outside the provider so provider classes remain generic.
         response = self._client.chat.completions.create(
@@ -157,7 +165,7 @@ class ProviderReasoningEngine:
                         "objective": "...",
                         "owner": "planner_agent",
                         "done_definition": "...",
-                        "dependencies": ["P0"],
+                        "dependencies": [],
                     }
                 ],
                 "acceptance_criteria": ["..."],
@@ -246,6 +254,9 @@ class ProviderReasoningEngine:
         findings_payload = model_payload.get("findings", [])
         findings: list[FindingRecord] = []
         for index, item in enumerate(findings_payload, start=1):
+            allowed_ids = {evidence.evidence_id for evidence in ranked_evidence[:12]}
+            if not item.get("evidence_ids") or any(eid not in allowed_ids for eid in item["evidence_ids"]):
+                raise RuntimeError("LLM finding contains missing or unknown evidence references.")
             findings.append(
                 FindingRecord(
                     finding_id=str(item.get("finding_id", f"F{index}")),
@@ -273,6 +284,14 @@ class ProviderReasoningEngine:
             "revision_count": revision_count,
             "human_approval_required": human_approval_required,
             "ranked_evidence_count": len(ranked_evidence),
+            "ranked_evidence": [
+                {"evidence_id": item.evidence_id, "claim": item.claim,
+                 "summary": item.summary, "confidence": item.confidence,
+                 "risk_flags": item.risk_flags,
+                 "citations": [citation.model_dump() for citation in item.citations]}
+                for item in ranked_evidence[:12]
+            ],
+            "draft_truncated": len(draft_report) > 8000,
             "draft_excerpt": draft_report[:8000],
             "response_schema": {
                 "verdict": "approve|revise|escalate",
@@ -291,7 +310,7 @@ class ProviderReasoningEngine:
         )
 
         return ReviewFeedback(
-            verdict=str(model_payload.get("verdict", "revise")).lower(),
+            verdict="escalate" if human_approval_required else str(model_payload.get("verdict", "revise")).lower(),
             score=float(model_payload.get("score", 0.65)),
             summary=str(model_payload.get("summary", "Reviewer response was incomplete.")).strip(),
             questions=[str(item) for item in model_payload.get("questions", [])],
@@ -309,7 +328,9 @@ class ProviderReasoningEngine:
     ) -> dict[str, Any]:
         timestamp = datetime.now(UTC).isoformat()
         started = monotonic()
-        input_text = f"System: {system_prompt}\n\nUser: {user_prompt}"
+        system_prompt = f"Prompt contract version: {PROMPT_VERSION}\n{system_prompt}"
+        # Preserve task visibility when a longer system contract is truncated.
+        input_text = f"User: {user_prompt}\n\nSystem: {system_prompt}"
         raw = ""
         try:
             raw = self.provider.complete(system_prompt=system_prompt, user_prompt=user_prompt)

@@ -16,6 +16,7 @@ from graph.builder import build_agent_graph
 from schemas.models import ModelCallRecord, RunResponse, ToolCallRecord, TraceEvent
 from schemas.state import initial_state
 from services.runtime import AgentRuntime, build_runtime
+from services.concurrency import RunAdmission, RunConflictError, validate_task_id
 
 
 class RunNotFoundError(LookupError):
@@ -26,8 +27,25 @@ class WorkflowRunner:
     def __init__(self, runtime: AgentRuntime | None = None) -> None:
         self.runtime = runtime or build_runtime()
         self.graph = build_agent_graph(self.runtime)
+        self.admission = RunAdmission(self.runtime.settings.max_concurrent_runs)
 
     def start(
+        self,
+        task: str,
+        task_id: str | None = None,
+        auto_approve: bool = False,
+        task_type: str = "general",
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        from uuid import uuid4
+
+        task_id = task_id or f"task-{uuid4().hex}"
+        with self.admission.claim(task_id):
+            snapshot = self.graph.get_state({"configurable": {"thread_id": task_id}})
+            if getattr(snapshot, "values", None):
+                raise RunConflictError("task_id already exists. Inspect it or use a new task_id.")
+            return self._start(task, task_id, auto_approve, task_type)
+
+    def _start(
         self,
         task: str,
         task_id: str | None = None,
@@ -53,6 +71,13 @@ class WorkflowRunner:
         return result, interrupt_payload
 
     def continue_run(self, task_id: str, approved: bool, reviewer: str, rationale: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        with self.admission.claim(task_id):
+            _, interrupt = self.inspect(task_id)
+            if interrupt is None:
+                raise RunConflictError("Run is not awaiting approval.")
+            return self._continue_run(task_id, approved, reviewer, rationale)
+
+    def _continue_run(self, task_id: str, approved: bool, reviewer: str, rationale: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
         # Resume feeds the approval payload back into the interrupted `human_review`
         # node; LangGraph restores the rest of the checkpointed state for us.
         config = {"configurable": {"thread_id": task_id}}
@@ -70,6 +95,7 @@ class WorkflowRunner:
 
     def inspect(self, task_id: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
         """Read the latest checkpoint without advancing the LangGraph thread."""
+        validate_task_id(task_id)
         config = {"configurable": {"thread_id": task_id}}
         snapshot = self.graph.get_state(config)
         values = getattr(snapshot, "values", None)
@@ -92,6 +118,18 @@ class WorkflowRunner:
         ]
         interrupt_payload = self._extract_snapshot_interrupt_payload(snapshot)
         return state, interrupt_payload
+
+    def close(self) -> None:
+        """Called after HTTP workers drain on graceful shutdown."""
+        self.runtime.retrieval.reranker.close()
+        conn = getattr(self.graph.checkpointer, "conn", None)
+        if conn is not None:
+            conn.close()
+        for provider in (self.runtime.llm_provider, self.runtime.embedding_provider, self.runtime.vector_store):
+            client = getattr(provider, "_client", None)
+            close = getattr(client, "close", None)
+            if callable(close):
+                close()
 
     def summarize(self, state: dict[str, Any], interrupt_payload: dict[str, Any] | None = None) -> RunResponse:
         # The response retains the compact lifecycle fields while exposing the

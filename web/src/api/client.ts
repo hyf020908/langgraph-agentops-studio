@@ -57,6 +57,8 @@ export interface ModelCallRecord {
 }
 
 export interface RunResponse {
+  queue_job_id?: string | null;
+  queue_status?: "queued" | "running" | "done" | "failed" | null;
   task_id: string;
   status: string;
   next_nodes: string[];
@@ -113,13 +115,13 @@ export const apiClient = {
   health: () => request<HealthResponse>("/health"),
   providers: () => request<ProvidersResponse>("/providers"),
   createRun: (payload: RunRequest) =>
-    request<RunResponse>("/runs", {
+    request<RunResponse>("/runs?wait=false", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
   getRun: (taskId: string) => request<RunResponse>(`/runs/${encodeURIComponent(taskId)}`),
   continueRun: (taskId: string, payload: ContinueRequest) =>
-    request<RunResponse>(`/runs/${encodeURIComponent(taskId)}/continue`, {
+    request<RunResponse>(`/runs/${encodeURIComponent(taskId)}/continue?wait=false`, {
       method: "POST",
       body: JSON.stringify(payload),
     }),

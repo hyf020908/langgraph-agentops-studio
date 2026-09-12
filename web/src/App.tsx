@@ -15,7 +15,7 @@ import { ReviewPanel } from "./components/ReviewPanel";
 import { TaskForm } from "./components/TaskForm";
 
 const featurePills = ["Multi-Agent Workflow", "Evidence Grounding", "Human Review Gate", "Artifact Export"];
-const RUN_POLL_INTERVAL_MS = 700;
+const RUN_POLL_INTERVAL_MS = 1000;
 
 function createTaskId() {
   const randomPart =
@@ -63,6 +63,7 @@ export default function App() {
   const [isRunLoading, setIsRunLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pollingGeneration = useRef(0);
+  const cancelPolling = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     let isActive = true;
@@ -97,6 +98,7 @@ export default function App() {
   useEffect(
     () => () => {
       pollingGeneration.current += 1;
+      cancelPolling.current?.();
     },
     [],
   );
@@ -105,6 +107,10 @@ export default function App() {
     const generation = pollingGeneration.current + 1;
     pollingGeneration.current = generation;
     let requestInFlight = false;
+    let finishQueued: ((snapshot: RunResponse) => void) | null = null;
+    let rejectQueued: ((reason: Error) => void) | null = null;
+    let failures = 0;
+    let expectedJobId: string | null = null;
 
     async function pollSnapshot() {
       if (requestInFlight || pollingGeneration.current !== generation) {
@@ -113,24 +119,48 @@ export default function App() {
       requestInFlight = true;
       try {
         const snapshot = await apiClient.getRun(taskId);
+        failures = 0;
         if (pollingGeneration.current === generation) {
           setRun(snapshot);
+          if (snapshot.queue_job_id === expectedJobId && (snapshot.queue_status === "done" || snapshot.queue_status === "failed")) {
+            finishQueued?.(snapshot);
+          }
         }
-      } catch {
-        // A 404 is expected before LangGraph creates its first checkpoint.
-        // Other polling errors are also non-fatal; the authoritative POST or
-        // continue response still determines the outcome shown to the user.
+      } catch (pollError) {
+        failures += 1;
+        if (failures >= 10 && rejectQueued) {
+          rejectQueued(new Error(`Polling interrupted for ${taskId}: ${messageFromError(pollError)}`));
+        }
+        // Tolerate brief checkpoint visibility and connectivity gaps. Persistent
+        // polling failure is reported without cancelling the durable server job.
       } finally {
         requestInFlight = false;
       }
     }
 
-    const intervalId = window.setInterval(() => void pollSnapshot(), RUN_POLL_INTERVAL_MS);
+    const intervalId = window.setInterval(() => void pollSnapshot(), RUN_POLL_INTERVAL_MS + Math.random() * 500);
+    cancelPolling.current = () => {
+      window.clearInterval(intervalId);
+      rejectQueued?.(new Error("Polling cancelled; the server task continues."));
+    };
     void pollSnapshot();
     try {
-      return await operation();
+      const response = await operation();
+      if (pollingGeneration.current !== generation) {
+        throw new Error("Polling cancelled; the server task continues.");
+      }
+      if (response.queue_status !== "queued" && response.status !== "queued") {
+        return response;
+      }
+      setRun(response);
+      expectedJobId = response.queue_job_id ?? null;
+      return await new Promise<RunResponse>((resolve, reject) => {
+        finishQueued = resolve;
+        rejectQueued = reject;
+      });
     } finally {
       window.clearInterval(intervalId);
+      cancelPolling.current = null;
       if (pollingGeneration.current === generation) {
         pollingGeneration.current += 1;
       }

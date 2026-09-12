@@ -1,0 +1,63 @@
+# Single-host deployment: API and workers share a LOCAL volume, not NFS.
+x-backend: &backend
+  build: .
+  env_file: ${AGENTOPS_ENV_FILE:-.env}
+  environment:
+    TASK_QUEUE_MODE: rabbitmq
+    CHECKPOINT_MODE: sqlite
+    OUTPUT_ROOT: /data
+    RAG_LEXICAL_PATH: /data/bm25.sqlite
+    RAG_SOURCE_DIR: /knowledge
+    QDRANT_URL: http://qdrant:6333
+    RABBITMQ_URL: amqp://${RABBITMQ_USER:-agentops}:${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}@rabbitmq:5672/%2F
+  volumes:
+    - runtime:/data
+    - ./examples/knowledge_base:/knowledge:ro
+  restart: unless-stopped
+  init: true
+  depends_on:
+    rabbitmq:
+      condition: service_healthy
+    qdrant:
+      condition: service_started
+
+services:
+  api:
+    <<: *backend
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=5)"]
+      interval: 20s
+      timeout: 6s
+      retries: 3
+      start_period: 30s
+  worker:
+    <<: *backend
+    command: ["python", "-m", "app.worker"]
+    stop_grace_period: 15m
+  rabbitmq:
+    image: rabbitmq:4.1.8-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-agentops}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}
+    volumes:
+      - rabbitmq:/var/lib/rabbitmq
+    ports:
+      - "127.0.0.1:15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+  qdrant:
+    image: qdrant/qdrant:v1.19.0
+    volumes:
+      - qdrant:/qdrant/storage
+    restart: unless-stopped
+
+volumes:
+  runtime:
+  rabbitmq:
+  qdrant:

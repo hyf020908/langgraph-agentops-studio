@@ -9,7 +9,9 @@ LangGraph AgentOps Studio is a LangGraph-native AgentOps workbench for multi-age
 - Graph-based orchestration with `StateGraph`, `ToolNode`, `Command`, `interrupt`, and checkpoint-backed resume semantics.
 - Role-based multi-agent workflow: planner, research pipeline, analyst, reviewer, HITL approval gate, executor, and supervisor.
 - Provider-managed LLM and embedding clients (`openai`, `deepseek`, `openai_compatible`).
-- Hybrid evidence grounding across vector retrieval and web evidence sources (Tavily + Jina, or Exa search + content extraction).
+- Hybrid knowledge retrieval with BM25 and vector recall, RRF fusion, and configurable reranking, complemented by web evidence sources (Tavily + Jina, or Exa search + content extraction).
+- RabbitMQ-backed task execution with independent workers, a durable job/outbox registry, bounded admission, and duplicate-delivery protection.
+- Provider concurrency limits and circuit breakers, SQLite checkpoints, atomic artifact writes, and operational metrics.
 - Evidence assessment pipeline with structured scoring dimensions, support/contradiction analysis, and coverage measurement.
 - Evidence-grounded recommendation synthesis with confidence scoring, open questions, and residual risk outputs.
 - Policy-based governance evaluation with explicit escalation criteria for human review.
@@ -77,20 +79,37 @@ No remote vector database is required for local development. The default vector 
 ### Optional Configuration
 
 - Application and runtime controls: `APP_NAME`, `LOG_LEVEL`, `OUTPUT_ROOT`, `CHECKPOINT_MODE`, `MAX_RETRIES`, `MAX_REVISIONS`.
+- Task execution: `TASK_QUEUE_MODE` selects `inline` or `rabbitmq`; `MAX_CONCURRENT_RUNS` bounds worker concurrency and `MAX_PENDING_JOBS` bounds the durable backlog. RabbitMQ mode requires `RABBITMQ_URL`, SQLite checkpoints, and server-mode Qdrant when using that vector backend.
 - Detailed conclusion controls: `REPORT_DETAIL_LEVEL`, `REPORT_MAX_FINDINGS_IN_CONCLUSION`, `REPORT_MAX_EVIDENCE_IN_CONCLUSION`, `REPORT_MAX_RISKS_IN_CONCLUSION`, and `REPORT_INCLUDE_NEXT_ACTIONS`.
 - Vector stores: `VECTOR_DB_PROVIDER` supports Qdrant, Milvus, Weaviate, Chroma, pgvector, Pinecone, and an in-memory test backend. Qdrant remains the default; install another client with its optional extra (for example, `pip install -e ".[milvus]"`). See `docs/providers.md` for backend variables.
-- Local vector retrieval behavior: tune `RAG_SOURCE_DIR`, `RAG_TOP_K`, `RAG_CHUNK_SIZE`, `RAG_CHUNK_OVERLAP`, and `RAG_SCORE_THRESHOLD`.
+- Knowledge retrieval: tune `RAG_SOURCE_DIR`, `RAG_TOP_K`, `RAG_CHUNK_SIZE`, `RAG_CHUNK_OVERLAP`, and the vector-only `RAG_SCORE_THRESHOLD`. Hybrid recall uses `RAG_HYBRID_ENABLED`, `RAG_LEXICAL_PATH`, `RAG_CANDIDATE_K`, and `RAG_RRF_K`.
+- Reranking: `RAG_RERANK_PROVIDER=http` uses a model endpoint configured through `RAG_RERANK_URL`, `RAG_RERANK_MODEL`, and optional `RAG_RERANK_API_KEY`. The default `lexical` mode uses local token coverage; `none` preserves RRF order. HTTP reranking failures fall back to RRF.
 - Web evidence grounding: set `ENABLE_WEB_SEARCH=true` and provide either `TAVILY_API_KEY` or `EXA_API_KEY` when live web search is required. The default example keeps `ENABLE_WEB_SEARCH=false` so local runs do not depend on external search or reader providers.
 - Network proxy: if live web search or page reading is slow, blocked, or times out, configure `HTTP_PROXY` and `HTTPS_PROXY` in the backend `.env`, for example `HTTP_PROXY=http://127.0.0.1:7890`.
 - Tavily + Jina mode: configure `WEB_SEARCH_MODE=tavily_jina`, `TAVILY_*`, and optionally `JINA_*` reader settings.
 - Exa mode: configure `WEB_SEARCH_MODE=exa`, `EXA_*`, and `EXA_USE_CONTENTS`.
 - Governance policy thresholds: tune `GOVERNANCE_*`, `RISK_THRESHOLD_FOR_HUMAN_REVIEW`, and `GOVERNANCE_MANUAL_APPROVAL_POLICY_BY_TASK_TYPE_JSON`.
 
-## Build the Vector Index
+## Build the Knowledge Index
+
+Ingestion populates the vector store and, when hybrid retrieval is enabled, the persistent BM25 index. Recreating indexes is an offline maintenance operation.
 
 ```bash
 python app/ingest.py --source-dir examples/knowledge_base --recreate-collection
 ```
+
+## Deployment
+
+Configure provider credentials and `RABBITMQ_PASSWORD` in `.env`, then start the API, workers, RabbitMQ, and Qdrant:
+
+```bash
+docker compose up --build -d
+docker compose exec api python -m app.ingest --source-dir /knowledge
+```
+
+The deployment uses a shared local volume for task metadata, checkpoints, the BM25 index, and artifacts. It supports worker processes on one host; it does not provide multi-host database storage or tenant isolation. The API should be accessed through an authenticated gateway. `/health`, `/ready`, and `/metrics` expose liveness, runtime readiness, and request metrics.
+
+See [operations and deployment](docs/production.md) for capacity settings, delivery semantics, recovery procedures, and deployment boundaries.
 
 ## Usage
 
@@ -149,6 +168,8 @@ The response includes `execution_trace`, `tool_call_history`,
 `model_call_history`, `next_nodes`, `draft_report`, and `final_report`. See
 [`docs/observability.md`](docs/observability.md) for the exact polling contract.
 
+In RabbitMQ mode, append `?wait=false` to create or continue requests to receive HTTP 202 immediately. Poll the run until `queue_status` is `done` or `failed`, matching `queue_job_id` to the submitted operation. A completed queue operation may leave the workflow awaiting human approval. See [queue request contracts](docs/production.md#request-and-delivery-contracts).
+
 Resume a run after an approval interrupt:
 
 ```bash
@@ -162,8 +183,10 @@ Ingest local knowledge-base documents:
 ```bash
 curl -X POST http://127.0.0.1:8000/ingest \
   -H "Content-Type: application/json" \
-  -d '{"source_dir":"examples/knowledge_base","recreate_collection":true}'
+  -d '{}'
 ```
+
+The API ingests from `RAG_SOURCE_DIR`; an optional `source_dir` must remain inside that directory. Collection recreation is available only through offline CLI maintenance.
 
 ### 3. Web Frontend Mode
 
@@ -194,7 +217,7 @@ The frontend connects to the backend through `VITE_API_BASE_URL` in `web/.env`.
 VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
-The current API does not expose a dedicated run-status polling endpoint. The web frontend displays the latest response returned by create-run or continue-run requests.
+The frontend polls `GET /runs/{task_id}` for execution progress. In RabbitMQ mode, it tracks the submitted queue operation through completion or failure and displays the human review gate when approval is required.
 
 ## Run Outputs
 
@@ -317,7 +340,7 @@ web/
 Deterministic unit tests:
 
 ```bash
-pytest tests/test_config.py tests/test_evidence_pipeline.py tests/test_governance.py tests/test_grounding_merge.py
+python -m pytest -q -p no:cacheprovider
 ```
 
 Integration smoke tests (network access + provider credentials):
@@ -325,6 +348,8 @@ Integration smoke tests (network access + provider credentials):
 ```bash
 RUN_REAL_WEB_GROUNDING=1 pytest tests/integration/test_real_web_grounding.py
 RUN_REAL_PROVIDER_RUN=1 pytest tests/integration/test_real_provider_run.py
+# Set RABBITMQ_TEST_URL to an isolated test broker before running:
+pytest tests/integration/test_rabbitmq_delivery.py
 ```
 
 Integration tests are env-gated and skip when required keys are not present.
@@ -353,6 +378,7 @@ npm run build
 
 ## Documentation
 
+- [Operations and deployment](docs/production.md)
 - `docs/architecture.md`
 - `docs/providers.md`
 - `docs/rag.md`

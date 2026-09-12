@@ -340,16 +340,16 @@ class DecisionRecord(BaseModel):
 
 
 class RunRequest(BaseModel):
-    task: str
-    task_id: str | None = None
+    task: str = Field(min_length=1, max_length=32000, pattern=r"\S")
+    task_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
     auto_approve: bool = False
-    task_type: str = "general"
+    task_type: str = Field(default="general", min_length=1, max_length=64)
 
 
 class ContinueRequest(BaseModel):
     approved: bool
-    reviewer: str = "api-reviewer"
-    rationale: str = "Continuation requested from API."
+    reviewer: str = Field(default="api-reviewer", min_length=1, max_length=128)
+    rationale: str = Field(default="Continuation requested from API.", min_length=1, max_length=4000)
 
 
 class IngestRequest(BaseModel):
@@ -369,6 +369,8 @@ class IngestResponse(BaseModel):
 
 
 class RunResponse(BaseModel):
+    queue_job_id: str | None = None
+    queue_status: Literal["queued", "running", "done", "failed"] | None = None
     task_id: str
     status: str
     approval_required: bool

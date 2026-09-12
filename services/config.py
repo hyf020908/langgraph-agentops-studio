@@ -86,6 +86,15 @@ class RAGSettings(BaseModel):
     chunk_size: int = Field(default=900, ge=200, le=4000)
     chunk_overlap: int = Field(default=120, ge=0, le=1200)
     score_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    hybrid_enabled: bool = True
+    lexical_path: str = "runs/bm25.sqlite"
+    candidate_k: int = Field(default=30, ge=4, le=200)
+    rrf_k: int = Field(default=60, ge=1, le=1000)
+    rerank_provider: Literal["lexical", "http", "none"] = "lexical"
+    rerank_url: str | None = None
+    rerank_api_key: str | None = None
+    rerank_model: str = "BAAI/bge-reranker-v2-m3"
+    rerank_timeout: float = Field(default=10, gt=0, le=60)
 
 
 class WebGroundingSettings(BaseModel):
@@ -161,7 +170,8 @@ class Settings(BaseModel):
     app_name: str = "LangGraph AgentOps Studio"
     log_level: str = "INFO"
     output_root: str = "runs"
-    checkpoint_mode: str = "memory"
+    checkpoint_mode: Literal["memory", "sqlite"] = "memory"
+    max_concurrent_runs: int = Field(default=8, ge=1, le=128)
     max_search_results: int = Field(default=5, ge=1, le=20)
     max_retries: int = Field(default=2, ge=0, le=5)
     max_revisions: int = Field(default=2, ge=0, le=5)
@@ -294,6 +304,7 @@ def load_settings() -> Settings:
             "log_level": os.getenv("LOG_LEVEL", defaults.get("log_level", "INFO")),
             "output_root": os.getenv("OUTPUT_ROOT", defaults.get("output_root", "runs")),
             "checkpoint_mode": os.getenv("CHECKPOINT_MODE", defaults.get("checkpoint_mode", "memory")),
+            "max_concurrent_runs": _int_env("MAX_CONCURRENT_RUNS", defaults.get("max_concurrent_runs", 8)),
             "max_search_results": _int_env("MAX_SEARCH_RESULTS", defaults.get("max_search_results", 5)),
             "max_retries": _int_env("MAX_RETRIES", defaults.get("max_retries", 2)),
             "max_revisions": _int_env("MAX_REVISIONS", defaults.get("max_revisions", 2)),
@@ -431,6 +442,15 @@ def load_settings() -> Settings:
                 "timeout": _float_env("VECTOR_DB_TIMEOUT", vector_defaults.get("timeout", 30.0)),
             },
             "rag": {
+                "hybrid_enabled": _to_bool(os.getenv("RAG_HYBRID_ENABLED"), True),
+                "lexical_path": os.getenv("RAG_LEXICAL_PATH", "runs/bm25.sqlite"),
+                "candidate_k": _int_env("RAG_CANDIDATE_K", 30),
+                "rrf_k": _int_env("RAG_RRF_K", 60),
+                "rerank_provider": os.getenv("RAG_RERANK_PROVIDER", "lexical"),
+                "rerank_url": _optional_str_env("RAG_RERANK_URL"),
+                "rerank_api_key": _optional_str_env("RAG_RERANK_API_KEY"),
+                "rerank_model": os.getenv("RAG_RERANK_MODEL", "BAAI/bge-reranker-v2-m3"),
+                "rerank_timeout": _float_env("RAG_RERANK_TIMEOUT", 10),
                 "enabled": _to_bool(os.getenv("RAG_ENABLED"), rag_defaults.get("enabled", True)),
                 "source_dir": os.getenv("RAG_SOURCE_DIR", rag_defaults.get("source_dir", "knowledge_base")),
                 "top_k": _int_env("RAG_TOP_K", rag_defaults.get("top_k", 4)),

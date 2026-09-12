@@ -5,6 +5,7 @@ from __future__ import annotations
 # search over embedded chunks. It is the vector-backed half of hybrid grounding.
 
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 from services.config import RAGSettings
 from services.embeddings import BaseEmbeddingProvider
 from services.vectorstore import BaseVectorStore
+from services.hybrid import BM25Index, Reranker, reciprocal_rank_fusion
 
 
 SUPPORTED_EXTENSIONS = {".md", ".txt", ".rst", ".json", ".yaml", ".yml", ".csv"}
@@ -29,6 +31,8 @@ class RetrievalService:
         self.settings = rag_settings
         self.embeddings = embeddings
         self.vector_store = vector_store
+        self.lexical = BM25Index(rag_settings.lexical_path) if rag_settings.hybrid_enabled else None
+        self.reranker = Reranker(rag_settings)
 
     def ingest_directory(self, source_dir: str | Path | None = None, recreate_collection: bool = False) -> dict[str, Any]:
         directory = Path(source_dir or self.settings.source_dir)
@@ -64,30 +68,29 @@ class RetrievalService:
                 "message": "No text chunks generated from source documents.",
             }
 
-        vectors = self.embeddings.embed_documents([item["text"] for item in chunks])
-        if not vectors:
-            return {
-                "status": "failed",
-                "collection": getattr(self.vector_store, "_collection", None),
-                "source_dir": str(directory),
-                "document_count": len(documents),
-                "chunk_count": 0,
-                "message": "Embedding provider returned no vectors.",
-            }
-
-        self.vector_store.ensure_collection(vector_size=len(vectors[0]), recreate=recreate_collection)
-        self.vector_store.upsert(
-            ids=[item["point_id"] for item in chunks],
-            vectors=vectors,
-            payloads=[item["payload"] for item in chunks],
-        )
+        # Lexical evidence remains searchable during embedding/provider outages.
+        if self.lexical is not None:
+            self.lexical.upsert(chunks, recreate=recreate_collection)
+        dimensions = None
+        for start in range(0, len(chunks), 32):
+            batch = chunks[start:start + 32]
+            vectors = self.embeddings.embed_documents([item["text"] for item in batch])
+            if len(vectors) != len(batch) or any(not vector for vector in vectors):
+                raise RuntimeError("Embedding response does not match ingestion batch.")
+            if dimensions is None:
+                dimensions = len(vectors[0])
+                self.vector_store.ensure_collection(vector_size=dimensions, recreate=recreate_collection)
+            if any(len(vector) != dimensions for vector in vectors):
+                raise RuntimeError("Embedding dimensions changed during ingestion.")
+            self.vector_store.upsert(ids=[item["point_id"] for item in batch], vectors=vectors,
+                                     payloads=[item["payload"] for item in batch])
         return {
             "status": "ok",
             "collection": getattr(self.vector_store, "_collection", None),
             "source_dir": str(directory),
             "document_count": len(documents),
             "chunk_count": len(chunks),
-            "embedding_dimensions": len(vectors[0]),
+            "embedding_dimensions": dimensions,
             "vector_store_provider": self.vector_store.provider_name,
         }
 
@@ -95,17 +98,30 @@ class RetrievalService:
         if not self.settings.enabled:
             return []
 
+        limit = min(20, max(1, top_k or self.settings.top_k))
+        candidates = max(limit, self.settings.candidate_k)
+        lexical_hits = []
+        if self.lexical is not None:
+            try:
+                lexical_hits = self.lexical.search(query, candidates)
+            except Exception:
+                logging.getLogger("agentops.retrieval").warning("BM25 unavailable; using vector recall.", exc_info=True)
+
         try:
             # Retrieval failures are intentionally swallowed here so grounding can
             # still continue with web sources when vector infrastructure is down.
             query_vector = self.embeddings.embed_query(query)
             search_hits = self.vector_store.search(
                 query_vector=query_vector,
-                top_k=top_k or self.settings.top_k,
+                top_k=candidates,
                 score_threshold=self.settings.score_threshold,
             )
         except Exception:
-            return []
+            logging.getLogger("agentops.retrieval").warning("Vector recall unavailable; continuing with BM25 candidates.", exc_info=True)
+            search_hits = []
+
+        search_hits = reciprocal_rank_fusion([search_hits, lexical_hits], self.settings.rrf_k)
+        search_hits = self.reranker.rerank(query, search_hits[:candidates], limit)
 
         now = datetime.now(UTC).isoformat()
         results: list[dict[str, Any]] = []
@@ -136,6 +152,9 @@ class RetrievalService:
                     "metadata": {
                         **metadata,
                         "text": text,
+                        "retrieval_ranks": hit.get("retrieval_ranks", {}),
+                        "rrf_score": hit.get("score", 0),
+                        "rerank_score": hit.get("rerank_score"),
                     },
                 }
             )
@@ -221,15 +240,21 @@ class RetrievalService:
     def _load_documents(self, directory: Path) -> list[dict[str, Any]]:
         documents: list[dict[str, Any]] = []
         for path in sorted(directory.rglob("*")):
+            if directory.resolve() not in path.resolve().parents:
+                continue
             if not path.is_file() or path.suffix.lower() not in SUPPORTED_EXTENSIONS:
                 continue
+            if path.stat().st_size > 2 * 1024 * 1024:
+                raise ValueError("Knowledge documents must be at most 2 MiB each.")
+            if len(documents) >= 1000:
+                raise ValueError("Ingest at most 1000 documents per operation.")
             text = self._read_text(path)
             if not text.strip():
                 continue
             relative = path.relative_to(directory)
             documents.append(
                 {
-                    "doc_id": f"DOC-{uuid4().hex[:10]}",
+                    "doc_id": f"DOC-{uuid5(NAMESPACE_URL, str(relative)).hex[:16]}",
                     "title": path.stem.replace("_", " "),
                     "source": str(relative),
                     "extension": path.suffix.lower(),

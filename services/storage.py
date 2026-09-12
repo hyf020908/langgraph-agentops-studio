@@ -5,10 +5,13 @@ from __future__ import annotations
 # actual file-writing details out of graph nodes and export helpers.
 
 import json
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
 from services.serialization import dumps
+from services.concurrency import validate_task_id
 
 
 class LocalArtifactStore:
@@ -18,7 +21,10 @@ class LocalArtifactStore:
 
     def run_dir(self, task_id: str) -> Path:
         # Exporters can assume the run directory exists after calling this helper.
-        directory = self.root / task_id
+        validate_task_id(task_id)
+        directory = (self.root / task_id).resolve()
+        if self.root.resolve() not in directory.parents:
+            raise ValueError("Run directory escapes artifact root.")
         directory.mkdir(parents=True, exist_ok=True)
         return directory
 
@@ -32,13 +38,27 @@ class LocalArtifactStore:
 
     def write_text(self, task_id: str, name: str, content: str) -> Path:
         path = self._resolve_run_path(task_id, name)
-        path.write_text(content, encoding="utf-8")
+        self._atomic_write(path, content)
         return path
 
     def write_json(self, task_id: str, name: str, payload: Any) -> Path:
         path = self._resolve_run_path(task_id, name)
-        path.write_text(dumps(payload), encoding="utf-8")
+        self._atomic_write(path, dumps(payload))
         return path
+
+    @staticmethod
+    def _atomic_write(path: Path, content: str) -> None:
+        # Readers see either the old or complete new file, never partial JSON.
+        fd, temporary = tempfile.mkstemp(prefix=".artifact-", dir=path.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
 
     def read_text(self, task_id: str, name: str) -> str:
         path = self._resolve_run_path(task_id, name)
