@@ -4,7 +4,7 @@
 
 LangGraph AgentOps Studio 是一个基于 LangGraph 原生能力构建的 AgentOps 工作台，用于多智能体研究工作流、证据评估、建议综合、策略治理和可审计工件导出。
 
-## 核心能力
+## 🧩 核心能力
 
 - 基于图的编排，使用 `StateGraph`、`ToolNode`、`Command`、`interrupt` 和检查点支持的恢复语义。
 - 基于角色的多智能体工作流：规划器、研究流水线、分析员、审阅员、HITL 审批关口、执行器和监督器。
@@ -19,7 +19,7 @@ LangGraph AgentOps Studio 是一个基于 LangGraph 原生能力构建的 AgentO
 - 可审计工件集合（`final_report.md`、`decision_record.json`、`workflow_trace.json`、`run_artifact.json` 以及支持文件）。
 - Web 控制台，用于提交运行、审阅中断、检查 Provider 和发现工件路径。
 
-## 工作流拓扑
+## 🔀 工作流拓扑
 
 ```mermaid
 flowchart TD
@@ -40,7 +40,7 @@ flowchart TD
     supervisor --> END([END])
 ```
 
-## 快速开始
+## 🚀 快速开始
 
 ```bash
 python -m venv .venv
@@ -49,11 +49,11 @@ pip install -e ".[dev]"
 cp .env.example .env
 ```
 
-## 配置
+### 配置
 
 先将 `.env.example` 复制为 `.env`。配置目标执行模式所需的变量，再逐步启用可选能力。
 
-### 最小配置
+#### 最小配置
 
 对于 CLI 或 API 执行，配置一个 LLM Provider：
 
@@ -76,7 +76,7 @@ cp .env.example .env
 
 本地开发不需要远程向量数据库。默认向量库通过 `QDRANT_LOCAL_PATH=.qdrant` 使用嵌入式 Qdrant 本地存储。
 
-### 可选配置
+#### 可选配置
 
 - 应用和运行时控制项：`APP_NAME`、`LOG_LEVEL`、`OUTPUT_ROOT`、`CHECKPOINT_MODE`、`MAX_RETRIES`、`MAX_REVISIONS`。
 - 任务执行：`TASK_QUEUE_MODE` 选择 `inline` 或 `rabbitmq`；`MAX_CONCURRENT_RUNS` 限制 worker 并发数，`MAX_PENDING_JOBS` 限制持久化任务积压。RabbitMQ 模式要求配置 `RABBITMQ_URL`、使用 SQLite 检查点，并在选择 Qdrant 时使用服务端模式。
@@ -90,7 +90,7 @@ cp .env.example .env
 - Exa 模式：配置 `WEB_SEARCH_MODE=exa`、`EXA_*` 和 `EXA_USE_CONTENTS`。
 - 治理策略阈值：调优 `GOVERNANCE_*`、`RISK_THRESHOLD_FOR_HUMAN_REVIEW` 和 `GOVERNANCE_MANUAL_APPROVAL_POLICY_BY_TASK_TYPE_JSON`。
 
-## 构建知识索引
+### 构建知识索引
 
 文档摄取会写入向量库，并在启用混合检索时写入持久化 BM25 索引。重建索引属于离线维护操作。
 
@@ -98,7 +98,7 @@ cp .env.example .env
 python app/ingest.py --source-dir examples/knowledge_base --recreate-collection
 ```
 
-## 部署
+### 部署（可选）
 
 在 `.env` 中配置 Provider 凭据和 `RABBITMQ_PASSWORD`，然后启动 API、worker、RabbitMQ 与 Qdrant：
 
@@ -111,9 +111,9 @@ docker compose exec api python -m app.ingest --source-dir /knowledge
 
 容量参数、消息投递语义、故障恢复和部署边界见[生产运行说明](docs/production.md)。
 
-## 使用方式
+### 启动方式
 
-### 1. CLI 模式
+#### 1. CLI 模式
 
 从内联任务运行工作流：
 
@@ -134,7 +134,7 @@ python app/main.py \
 
 省略 `--auto-approve` 时，高风险工作流可能会在 HITL 审批关口暂停。可通过 API 或 Web 前端恢复这些运行。
 
-### 2. API 模式
+#### 2. API 模式
 
 启动 FastAPI 服务器：
 
@@ -188,7 +188,7 @@ curl -X POST http://127.0.0.1:8000/ingest \
 
 API 从 `RAG_SOURCE_DIR` 摄取文档；可选的 `source_dir` 必须位于该目录内。集合重建仅通过离线 CLI 维护执行。
 
-### 3. Web 前端模式
+#### 3. Web 前端模式
 
 启动后端：
 
@@ -219,7 +219,14 @@ VITE_API_BASE_URL=http://127.0.0.1:8000
 
 前端通过 `GET /runs/{task_id}` 轮询执行进度。在 RabbitMQ 模式下，前端跟踪提交的队列操作直至完成或失败，并在需要审批时展示人工审阅面板。
 
-## 运行产物
+#### 用户输入示例
+
+- **电商客服：** 评估退换货咨询引入多智能体客服的可行性，给出人工接管条件与验收标准。
+- **企业知识库：** 比较自建 RAG 与托管知识库的成本、权限隔离和维护负担，给出选型建议。
+- **物流履约：** 基于现有运营资料分析大促订单延迟风险，提出监控指标与应急方案。
+- **供应商采购：** 对比三家云服务商的 SLA、成本和数据驻留要求，列出待核实信息与采购建议。
+
+## 📦 运行产物
 
 已完成工作流的工件会持久化到：
 
@@ -245,7 +252,7 @@ runs/demo-run/
 
 如果运行在 HITL 审批关口暂停，则最终工件要等到运行恢复并到达 executor 后才会完整生成。工件导出后，API 和 Web 前端也会返回 `artifact_paths`。
 
-## 上下文压缩
+## 🗜️ 上下文压缩
 
 工作流会保持受保护任务上下文不变，同时降低后续阶段传递的活动上下文规模。用户请求、任务类型、计划、验收标准、当前检索查询、治理约束和人工审批状态不会被有损压缩。
 
@@ -265,7 +272,7 @@ runs/demo-run/
 
 压缩机制采用 fail-open 策略。Embedding、摘要、工件写入或 rehydration 失败时，工作流继续使用原始上下文。完整策略和配置见 `docs/context_compaction.md`。
 
-## 界面概览
+## 🖥️ 界面概览
 
 <p align="center">
   <img src="assets/1.png" alt="LangGraph AgentOps Studio 首页总览，展示 serif 字体视觉风格、Provider 状态、工作流启动区和结果快照" width="760" />
@@ -303,7 +310,7 @@ runs/demo-run/
   <em>人工审阅门与详细证据报告并列展示。</em>
 </p>
 
-## Web 前端
+## 🌐 Web 前端
 
 `web/` 应用提供一个纸张与森林绿风格的 AgentOps 控制平面，包含：
 
@@ -314,7 +321,7 @@ runs/demo-run/
 - 基于检查点的执行过程查看，可查看节点事件、工具调用、模型调用、模型输出和下一调度节点；
 - 用于批准或拒绝中断运行的人工审阅面板。
 
-## Web 目录结构
+## 🗂️ Web 目录结构
 
 ```text
 web/
@@ -335,7 +342,7 @@ web/
       ...
 ```
 
-## 测试
+## 🧪 测试
 
 确定性单元测试：
 
@@ -368,7 +375,7 @@ npm install
 npm run build
 ```
 
-## 故障排查
+## 🔧 故障排查
 
 - 前端无法连接 API：核验 `web/.env` 中的 `VITE_API_BASE_URL` 和后端环境变量 `CORS_ORIGINS`。默认后端 CORS origins 包含 `http://127.0.0.1:5173` 和 `http://localhost:5173`。
 - 创建运行失败：核验 `.env` 中的 LLM、Embedding 和 Web Search API Key。
@@ -376,7 +383,7 @@ npm run build
 - 没有可用的 Tavily 或 Exa Key：设置 `ENABLE_WEB_SEARCH=false`，即可在不使用实时 Web Search 的情况下运行。
 - 高风险任务触发人工审批：启用 `--auto-approve`、设置 `auto_approve=true`，或通过 `/runs/{task_id}/continue` 或 Web 前端审阅面板恢复运行。
 
-## 文档
+## 📚 文档
 
 - [生产运行说明](docs/production.md)
 - `docs/architecture.md`
@@ -388,6 +395,6 @@ npm run build
 - `docs/context_compaction.md`
 - `docs/testing.md`
 
-## 许可证
+## 📄 许可证
 
 MIT（`LICENSE`）。

@@ -8,7 +8,7 @@ from __future__ import annotations
 from langchain_core.messages import AIMessage
 
 from schemas.models import FindingRecord
-from services.llm import drain_model_call_history
+from services.llm import ProviderReasoningEngine, drain_model_call_history
 from services.runtime import AgentRuntime
 from tools.factory import ToolRegistry, drain_tool_call_history
 
@@ -34,10 +34,14 @@ def build_analyst_node(runtime: AgentRuntime, tools: ToolRegistry):
         else:
             review_context = state.get("review_feedback").summary if state.get("review_feedback") else None
 
+        context_kwargs = {}
+        if runtime.context_compaction.settings.enabled and isinstance(runtime.reasoning, ProviderReasoningEngine):
+            context_kwargs["task_context"] = runtime.context_compaction.build_task_memory(state).model_dump()
         findings = runtime.reasoning.analyze_evidence(
             user_request=state["user_request"],
             ranked_evidence=active_evidence,
             revision_count=state.get("revision_count", 0),
+            **context_kwargs,
         )
 
         recommendation = runtime.recommendation_service.synthesize(

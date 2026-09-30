@@ -4,7 +4,7 @@
 
 LangGraph AgentOps Studio is a LangGraph-native AgentOps workbench for multi-agent research workflows, evidence assessment, recommendation synthesis, policy governance, and auditable artifact export.
 
-## Core Capabilities
+## 🧩 Core Capabilities
 
 - Graph-based orchestration with `StateGraph`, `ToolNode`, `Command`, `interrupt`, and checkpoint-backed resume semantics.
 - Role-based multi-agent workflow: planner, research pipeline, analyst, reviewer, HITL approval gate, executor, and supervisor.
@@ -19,7 +19,7 @@ LangGraph AgentOps Studio is a LangGraph-native AgentOps workbench for multi-age
 - Auditable artifact set (`final_report.md`, `decision_record.json`, `workflow_trace.json`, `run_artifact.json`, and supporting files).
 - Web console for run submission, interrupt review, provider inspection, and artifact path discovery.
 
-## Workflow Topology
+## 🔀 Workflow Topology
 
 ```mermaid
 flowchart TD
@@ -40,7 +40,7 @@ flowchart TD
     supervisor --> END([END])
 ```
 
-## Quick Start
+## 🚀 Quick Start
 
 ```bash
 python -m venv .venv
@@ -49,11 +49,11 @@ pip install -e ".[dev]"
 cp .env.example .env
 ```
 
-## Configuration
+### Configuration
 
 Start by copying `.env.example` to `.env`. Configure the variables required for the execution mode you intend to use, then enable optional capabilities incrementally.
 
-### Minimum Configuration
+#### Minimum Configuration
 
 For CLI or API execution, configure one LLM provider:
 
@@ -76,7 +76,7 @@ For the web frontend, configure:
 
 No remote vector database is required for local development. The default vector store uses embedded Qdrant local storage through `QDRANT_LOCAL_PATH=.qdrant`.
 
-### Optional Configuration
+#### Optional Configuration
 
 - Application and runtime controls: `APP_NAME`, `LOG_LEVEL`, `OUTPUT_ROOT`, `CHECKPOINT_MODE`, `MAX_RETRIES`, `MAX_REVISIONS`.
 - Task execution: `TASK_QUEUE_MODE` selects `inline` or `rabbitmq`; `MAX_CONCURRENT_RUNS` bounds worker concurrency and `MAX_PENDING_JOBS` bounds the durable backlog. RabbitMQ mode requires `RABBITMQ_URL`, SQLite checkpoints, and server-mode Qdrant when using that vector backend.
@@ -90,7 +90,7 @@ No remote vector database is required for local development. The default vector 
 - Exa mode: configure `WEB_SEARCH_MODE=exa`, `EXA_*`, and `EXA_USE_CONTENTS`.
 - Governance policy thresholds: tune `GOVERNANCE_*`, `RISK_THRESHOLD_FOR_HUMAN_REVIEW`, and `GOVERNANCE_MANUAL_APPROVAL_POLICY_BY_TASK_TYPE_JSON`.
 
-## Build the Knowledge Index
+### Build the Knowledge Index
 
 Ingestion populates the vector store and, when hybrid retrieval is enabled, the persistent BM25 index. Recreating indexes is an offline maintenance operation.
 
@@ -98,7 +98,7 @@ Ingestion populates the vector store and, when hybrid retrieval is enabled, the 
 python app/ingest.py --source-dir examples/knowledge_base --recreate-collection
 ```
 
-## Deployment
+### Deployment (Optional)
 
 Configure provider credentials and `RABBITMQ_PASSWORD` in `.env`, then start the API, workers, RabbitMQ, and Qdrant:
 
@@ -111,9 +111,9 @@ The deployment uses a shared local volume for task metadata, checkpoints, the BM
 
 See [operations and deployment](docs/production.md) for capacity settings, delivery semantics, recovery procedures, and deployment boundaries.
 
-## Usage
+### Launch Modes
 
-### 1. CLI Mode
+#### 1. CLI Mode
 
 Run a workflow from an inline task:
 
@@ -134,7 +134,7 @@ python app/main.py \
 
 When `--auto-approve` is omitted, high-risk workflows can pause at the HITL approval gate. Resume those runs through the API or the web frontend.
 
-### 2. API Mode
+#### 2. API Mode
 
 Start the FastAPI server:
 
@@ -188,7 +188,7 @@ curl -X POST http://127.0.0.1:8000/ingest \
 
 The API ingests from `RAG_SOURCE_DIR`; an optional `source_dir` must remain inside that directory. Collection recreation is available only through offline CLI maintenance.
 
-### 3. Web Frontend Mode
+#### 3. Web Frontend Mode
 
 Start the backend:
 
@@ -219,7 +219,14 @@ VITE_API_BASE_URL=http://127.0.0.1:8000
 
 The frontend polls `GET /runs/{task_id}` for execution progress. In RabbitMQ mode, it tracks the submitted queue operation through completion or failure and displays the human review gate when approval is required.
 
-## Run Outputs
+#### User Input Examples
+
+- **E-commerce support:** Assess the feasibility of multi-agent support for return and refund inquiries. Define human handoff conditions and acceptance criteria.
+- **Enterprise knowledge base:** Compare the cost, access isolation, and maintenance effort of a self-hosted RAG system and a managed knowledge base. Recommend an option.
+- **Logistics fulfillment:** Use existing operations documents to assess order delay risks during a major sales campaign. Propose monitoring metrics and contingency measures.
+- **Vendor procurement:** Compare three cloud providers on SLA, cost, and data residency requirements. Identify information to verify and recommend a procurement option.
+
+## 📦 Run Outputs
 
 Completed workflow artifacts are persisted under:
 
@@ -245,7 +252,7 @@ Final output files include:
 
 If a run pauses at the HITL approval gate, final artifacts are not complete until the run is resumed and reaches the executor. The API and web frontend also return `artifact_paths` after artifacts are exported.
 
-## Context Compaction
+## 🗜️ Context Compaction
 
 The workflow keeps protected task context unchanged while reducing the active context passed between later stages. User request, task type, plan, acceptance criteria, active search queries, governance constraints, and human approval state are protected from lossy compaction.
 
@@ -265,7 +272,7 @@ Reviewer iterations maintain a revision ledger with resolved, open, and new issu
 
 Compaction is fail-open. If embedding, summarization, artifact writing, or rehydration fails, the workflow continues with the original context. See `docs/context_compaction.md` for the full strategy and configuration.
 
-## Interface Overview
+## 🖥️ Interface Overview
 
 <p align="center">
   <img src="assets/1.png" alt="LangGraph AgentOps Studio landing dashboard with serif visual system, provider health strip, workflow launcher, and result snapshot" width="760" />
@@ -303,7 +310,7 @@ Compaction is fail-open. If embedding, summarization, artifact writing, or rehyd
   <em>Human review gate alongside a detailed evidence-grounded report.</em>
 </p>
 
-## Web Frontend
+## 🌐 Web Frontend
 
 The `web/` application provides a paper-and-forest AgentOps control plane with:
 
@@ -314,7 +321,7 @@ The `web/` application provides a paper-and-forest AgentOps control plane with:
 - checkpoint-backed execution process inspection for node events, tool calls, model calls, model outputs, and next scheduled nodes;
 - a human review panel for approving or rejecting interrupted runs.
 
-## Web Directory Structure
+## 🗂️ Web Directory Structure
 
 ```text
 web/
@@ -335,7 +342,7 @@ web/
       ...
 ```
 
-## Testing
+## 🧪 Testing
 
 Deterministic unit tests:
 
@@ -368,7 +375,7 @@ npm install
 npm run build
 ```
 
-## Troubleshooting
+## 🔧 Troubleshooting
 
 - Frontend cannot connect to the API: verify `VITE_API_BASE_URL` in `web/.env` and `CORS_ORIGINS` in the backend environment. The default backend CORS origins include `http://127.0.0.1:5173` and `http://localhost:5173`.
 - Run creation fails: verify LLM, embedding, and web search API keys in `.env`.
@@ -376,7 +383,7 @@ npm run build
 - No Tavily or Exa key is available: set `ENABLE_WEB_SEARCH=false` to run without live web search.
 - A high-risk task triggers human approval: enable `--auto-approve`, set `auto_approve=true`, or resume through `/runs/{task_id}/continue` or the web frontend review panel.
 
-## Documentation
+## 📚 Documentation
 
 - [Operations and deployment](docs/production.md)
 - `docs/architecture.md`
@@ -388,6 +395,6 @@ npm run build
 - `docs/context_compaction.md`
 - `docs/testing.md`
 
-## License
+## 📄 License
 
 MIT (`LICENSE`).

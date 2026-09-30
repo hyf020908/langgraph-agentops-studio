@@ -25,6 +25,27 @@ Run the complete backend regression suite with `pytest -q`. For the frontend,
 build; production preview should also be checked at desktop and mobile widths
 after visual changes.
 
+## Concurrency Acceptance
+
+`tests/test_concurrency_acceptance.py` exercises:
+
+- 64 simultaneous asynchronous queue submissions and durable job records.
+- 16 complete concurrent workflows through the HTTP API with each of memory and SQLite checkpoints, including structured compression, message eviction, approval, export, and checkpoint reopening.
+- Native asynchronous graph execution with the memory checkpointer. HTTP requests use the thread pool for the synchronous SQLite checkpointer.
+- Concurrent ingestion during in-memory vector search.
+- 32 trace archive merges on 16 threads and 64 artifact merges across four processes.
+- Overload rejection, health availability, capacity release after failure, and cancellation of a queue wait without losing the durable job.
+- Preservation of summary-only issues and complete long-message content under a bounded compression call budget.
+
+The workflow tests use real graph nodes, reducers, checkpoints, filesystem writes, and API concurrency. External model, embedding, and grounding calls use local providers. These tests establish correctness for the covered concurrency levels on one local volume; broker delivery and external provider behavior require the environment-gated integration tests below.
+
+Run with the dependency snapshot in `requirements.lock`:
+
+```bash
+pytest tests/test_concurrency_acceptance.py tests/test_context_compaction.py -q
+pytest -q
+```
+
 ## Layer 2: Integration Smoke Tests
 
 These tests execute provider-backed code paths and are env-gated:

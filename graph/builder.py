@@ -12,7 +12,7 @@ from agents.executor import build_executor_node
 from agents.planner import build_initialize_node, build_planner_node
 from agents.reviewer import build_human_review_node, build_reviewer_node
 from agents.supervisor import build_supervisor_node
-from graph.research_subgraph import build_research_subgraph
+from graph.research_subgraph import build_research_node, build_research_subgraph
 from graph.routing import supervisor_router
 from schemas.state import AgentState
 from services.checkpoint import build_checkpointer
@@ -29,7 +29,7 @@ def build_agent_graph(runtime: AgentRuntime):
     graph.add_node("initialize_task", build_initialize_node(runtime))
     graph.add_node("planner_agent", build_planner_node(runtime))
     graph.add_node("supervisor", build_supervisor_node(runtime))
-    graph.add_node("research_pipeline", research_subgraph)
+    graph.add_node("research_pipeline", build_research_node(research_subgraph))
     graph.add_node("analyst_agent", build_analyst_node(runtime, tools))
     graph.add_node("reviewer_agent", build_reviewer_node(runtime, tools))
     graph.add_node("human_review", build_human_review_node(runtime))

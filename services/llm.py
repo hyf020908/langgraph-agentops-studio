@@ -204,6 +204,7 @@ class ProviderReasoningEngine:
         user_request: str,
         ranked_evidence: list[EvidenceRecord],
         revision_count: int,
+        task_context: dict[str, Any] | None = None,
     ) -> list[FindingRecord]:
         # Only the most relevant evidence is serialized into the prompt to keep
         # the analyst focused and the payload size bounded.
@@ -220,6 +221,7 @@ class ProviderReasoningEngine:
         ]
         payload = {
             "task": user_request,
+            "task_context": task_context or {},
             "revision_count": revision_count,
             "ranked_evidence": serialized_evidence,
             "requirements": [
@@ -277,12 +279,14 @@ class ProviderReasoningEngine:
         ranked_evidence: list[EvidenceRecord],
         revision_count: int,
         human_approval_required: bool,
+        task_context: dict[str, Any] | None = None,
     ) -> ReviewFeedback:
         # Reviewer context includes the current revision count and whether a
         # human gate is already expected, which nudges escalation decisions.
         payload = {
             "revision_count": revision_count,
             "human_approval_required": human_approval_required,
+            "task_context": task_context or {},
             "ranked_evidence_count": len(ranked_evidence),
             "ranked_evidence": [
                 {"evidence_id": item.evidence_id, "claim": item.claim,

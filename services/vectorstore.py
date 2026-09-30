@@ -4,7 +4,9 @@ import json
 import math
 import re
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass, field
+from threading import RLock
 from typing import Any, Protocol
 from urllib.parse import urlparse
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -34,30 +36,34 @@ class InMemoryVectorStore:
     provider_name: str = "memory"
     _vector_size: int = field(init=False, default=0)
     _records: dict[str, tuple[list[float], dict[str, Any]]] = field(init=False, default_factory=dict)
+    _lock: Any = field(init=False, default_factory=RLock, repr=False)
 
     def __post_init__(self) -> None:
         self.provider_name = "memory"
 
     def ensure_collection(self, vector_size: int, recreate: bool = False) -> None:
-        if recreate:
-            self._records.clear()
-            self._vector_size = 0
-        if self._vector_size and self._vector_size != vector_size:
-            raise ValueError(
-                f"Embedding size mismatch for memory vector store: existing={self._vector_size}, incoming={vector_size}"
-            )
-        self._vector_size = vector_size
+        with self._lock:
+            if recreate:
+                self._records.clear()
+                self._vector_size = 0
+            if self._vector_size and self._vector_size != vector_size:
+                raise ValueError(
+                    f"Embedding size mismatch for memory vector store: existing={self._vector_size}, incoming={vector_size}"
+                )
+            self._vector_size = vector_size
 
     def upsert(self, *, ids: list[str], vectors: list[list[float]], payloads: list[dict[str, Any]]) -> None:
         _validate_batch(ids, vectors, payloads)
-        for record_id, vector, payload in zip(ids, vectors, payloads, strict=True):
-            self._records[record_id] = (vector, payload)
+        records = {record_id: (list(vector), deepcopy(payload))
+                   for record_id, vector, payload in zip(ids, vectors, payloads, strict=True)}
+        with self._lock:
+            self._records.update(records)
 
     def search(self, *, query_vector: list[float], top_k: int, score_threshold: float | None = None) -> list[dict[str, Any]]:
-        if not self._records:
-            return []
+        with self._lock:
+            records = list(self._records.items())
         ranked: list[tuple[str, float, dict[str, Any]]] = []
-        for record_id, (vector, payload) in self._records.items():
+        for record_id, (vector, payload) in records:
             score = _cosine_similarity(query_vector, vector)
             if score_threshold is not None and score < score_threshold:
                 continue
@@ -67,7 +73,7 @@ class InMemoryVectorStore:
             {
                 "id": record_id,
                 "score": score,
-                "payload": payload,
+                "payload": deepcopy(payload),
             }
             for record_id, score, payload in ranked[:top_k]
         ]

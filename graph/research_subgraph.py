@@ -5,6 +5,8 @@ from __future__ import annotations
 # grounding, normalizes heterogeneous results into source records, ranks
 # evidence, and then folds tool outputs back into `AgentState`.
 
+from langchain_core.messages import RemoveMessage
+from langchain_core.runnables import RunnableLambda
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
@@ -15,7 +17,7 @@ from agents.research import (
     build_rank_evidence_node,
     build_research_briefing_node,
 )
-from schemas.state import AgentState
+from schemas.state import AgentState, replace_records
 from services.runtime import AgentRuntime
 from tools.factory import ToolRegistry
 
@@ -47,3 +49,27 @@ def build_research_subgraph(runtime: AgentRuntime, tools: ToolRegistry):
     graph.add_edge("compact_research_context", END)
 
     return graph.compile(name="research_pipeline")
+
+
+def build_research_node(subgraph):
+    def project_update(before, result):
+        # Nested reducers have already applied these updates. The parent must
+        # replace their final values and propagate deletions explicitly.
+        update = dict(result)
+        for field in ("execution_trace", "tool_call_history", "model_call_history",
+                      "reviewer_history", "context_compaction_history"):
+            if field in update:
+                update[field] = replace_records(update[field])
+        remaining_ids = {m.id for m in result.get("messages", [])}
+        removed = [RemoveMessage(id=m.id) for m in before.get("messages", [])
+                   if m.id and m.id not in remaining_ids]
+        update["messages"] = removed + list(result.get("messages", []))
+        return update
+
+    def invoke(state, config):
+        return project_update(state, subgraph.invoke(state, config=config))
+
+    async def ainvoke(state, config):
+        return project_update(state, await subgraph.ainvoke(state, config=config))
+
+    return RunnableLambda(invoke, afunc=ainvoke)

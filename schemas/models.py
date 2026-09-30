@@ -196,6 +196,23 @@ class RevisionLedger(BaseModel):
     iteration: int = Field(default=0, ge=0)
 
 
+class StructuredTaskMemory(BaseModel):
+    """Active task memory; authoritative workflow fields remain in state."""
+
+    model_config = {"extra": "forbid"}
+    current_goal: str
+    current_plan: list[PlanStep] = Field(default_factory=list)
+    completed_steps: list[str] = Field(default_factory=list)
+    pending_steps: list[str] = Field(default_factory=list)
+    key_decisions: list[str] = Field(default_factory=list)
+    failed_approaches: list[str] = Field(default_factory=list)
+    successful_approaches: list[str] = Field(default_factory=list)
+    open_issues: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    recent_user_intent: list[str] = Field(default_factory=list)
+    compression_level: Literal["deterministic", "semantic", "hierarchical"] = "deterministic"
+
+
 class ContextCompactionStats(BaseModel):
     trigger_reason: str
     phase: str

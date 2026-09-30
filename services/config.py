@@ -153,6 +153,7 @@ class ContextCompactionSettings(BaseModel):
     trace_tail_size: int = Field(default=25, ge=1, le=500)
     semantic_dedupe_threshold: float = Field(default=0.90, ge=0.0, le=1.0)
     tool_offload_enabled: bool = True
+    summary_max_calls: int = Field(default=8, ge=1, le=32)
 
 
 class ReportingSettings(BaseModel):
@@ -574,6 +575,9 @@ def load_settings() -> Settings:
                 "tool_offload_enabled": _to_bool(
                     os.getenv("CONTEXT_TOOL_OFFLOAD_ENABLED"),
                     context_defaults.get("tool_offload_enabled", True),
+                ),
+                "summary_max_calls": _int_env(
+                    "CONTEXT_SUMMARY_MAX_CALLS", context_defaults.get("summary_max_calls", 8),
                 ),
             },
             "reporting": {

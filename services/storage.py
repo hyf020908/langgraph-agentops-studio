@@ -7,8 +7,12 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from collections.abc import Callable
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
+
+import portalocker
 
 from services.serialization import dumps
 from services.concurrency import validate_task_id
@@ -45,6 +49,21 @@ class LocalArtifactStore:
         path = self._resolve_run_path(task_id, name)
         self._atomic_write(path, dumps(payload))
         return path
+
+    def update_json(self, task_id: str, name: str, transform: Callable[[Any], Any]) -> Any:
+        """Serialize read/merge/write across threads and processes on this volume."""
+        path = self._resolve_run_path(task_id, name)
+        lock_dir = self.run_dir(task_id) / ".artifact-locks"
+        lock_dir.mkdir(exist_ok=True)
+        lock_path = lock_dir / (sha256(str(path).encode()).hexdigest() + ".lock")
+        with portalocker.Lock(str(lock_path), mode="a", timeout=10, check_interval=0.01):
+            try:
+                previous = self.read_json(task_id, name)
+            except FileNotFoundError:
+                previous = None
+            updated = transform(previous)
+            self.write_json(task_id, name, updated)
+            return updated
 
     @staticmethod
     def _atomic_write(path: Path, content: str) -> None:

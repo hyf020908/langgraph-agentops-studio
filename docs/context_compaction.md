@@ -78,11 +78,17 @@ When active trace length exceeds `CONTEXT_TRACE_TAIL_SIZE`, older events are wri
 runs/<task_id>/context/execution_trace_archive.json
 ```
 
-Active state keeps the recent tail plus a `ContextArtifactPointer`. The executor rehydrates archived trace events and merges them with the active tail before exporting `workflow_trace.json`, preserving chronological order and avoiding duplicates.
+Read/merge/write uses a file lock shared by threads and processes on the same local volume, followed by atomic replacement. Active state keeps the recent tail plus a `ContextArtifactPointer`. The executor rehydrates archived trace events and merges them with the active tail before exporting `workflow_trace.json`, preserving chronological order and avoiding duplicates.
 
 ## Old Conversation Summary
 
-Old conversation summary is triggered only under high or critical token pressure and only when message count exceeds the configured recent-message window. Recent HumanMessage content is preserved verbatim. The deterministic summary captures task goal, hard constraints, decisions, unresolved issues, and relevant errors.
+Old conversation compaction runs under high or critical pressure outside the recent-message window. System messages, recent user intent, and tool-call exchanges are retained. Expired standalone messages are archived before messages with stable IDs are removed; messages without IDs remain active.
+
+`StructuredTaskMemory` records `current_goal`, `current_plan`, `completed_steps`, `pending_steps`, `key_decisions`, `failed_approaches`, `successful_approaches`, `open_issues`, `constraints`, and `recent_user_intent`. Completion requires explicit `completed_step_ids` in completed trace metadata. A completed workflow stage alone does not prove that a plan step met its done definition.
+
+The deterministic tier builds memory from workflow state and prior memory. With a configured provider, high pressure applies strict JSON semantic compression; critical pressure folds successive groups of up to eight message fragments into the same structured memory. Long messages are split without dropping their tail; each batch is bounded to 32,000 serialized characters. `CONTEXT_SUMMARY_MAX_CALLS` limits calls per compaction (default 8); exceeding the limit retains the conversation. Model output is schema validated. Goal, plan, progress, constraints, and recent intent must match the authoritative snapshot, and existing decisions and approach records are preserved. Provider or validation failure retains the conversation. Analyst and reviewer prompts receive refreshed structured task context.
+
+Conversation archives use content-derived names and retain the full expired transcript alongside structured memory. Tool archives include a content-derived identity to prevent filename collisions. Trace archive replacement is applied through the state reducer, and pressure estimates use the surviving messages and active evidence projection.
 
 ## Phase Boundary and Token Pressure
 
@@ -104,7 +110,7 @@ Compaction triggers come from both workflow semantics and estimated token pressu
 - Analyst: compacted evidence when available, otherwise full ranked evidence
 - Reviewer: compacted evidence when available, otherwise full ranked evidence
 
-The original state remains the source of truth.
+The original state remains the source of truth. The research node replaces histories already reduced inside the subgraph and propagates explicit message removals to the parent, avoiding duplicate call records and restoring actual tool-output eviction.
 
 ## Rehydration
 
@@ -148,6 +154,7 @@ CONTEXT_RECENT_MESSAGES=8
 CONTEXT_TRACE_TAIL_SIZE=25
 CONTEXT_SEMANTIC_DEDUPE_THRESHOLD=0.90
 CONTEXT_TOOL_OFFLOAD_ENABLED=true
+CONTEXT_SUMMARY_MAX_CALLS=8
 ```
 
 Disabling `CONTEXT_COMPACTION_ENABLED` keeps behavior closest to the uncompressed workflow while leaving the original artifact and routing paths intact.

@@ -8,7 +8,7 @@ from __future__ import annotations
 from langgraph.types import Command, interrupt
 
 from schemas.models import ApprovalDecision
-from services.llm import drain_model_call_history
+from services.llm import ProviderReasoningEngine, drain_model_call_history
 from services.runtime import AgentRuntime
 from tools.factory import ToolRegistry, drain_tool_call_history
 
@@ -21,11 +21,15 @@ def build_reviewer_node(runtime: AgentRuntime, tools: ToolRegistry):
         ) if state.get("recommendation") else 0.0
         human_gate = bool(governance.requires_human_review) if governance else state.get("human_approval_required", False)
 
+        context_kwargs = {}
+        if runtime.context_compaction.settings.enabled and isinstance(runtime.reasoning, ProviderReasoningEngine):
+            context_kwargs["task_context"] = runtime.context_compaction.build_task_memory(state).model_dump()
         feedback = runtime.reasoning.review_report(
             draft_report=state.get("draft_report", ""),
             ranked_evidence=runtime.context_compaction.project_reviewer_evidence(state),
             revision_count=state.get("revision_count", 0),
             human_approval_required=human_gate,
+            **context_kwargs,
         )
         tools.invoke(
             "review_formatter_tool",

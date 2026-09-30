@@ -83,6 +83,7 @@ class AgentState(TypedDict, total=False):
     tool_call_history: Annotated[list[ToolCallRecord], append_records]
     model_call_history: Annotated[list[ModelCallRecord], append_records]
     execution_trace: Annotated[list[TraceEvent], append_records]
+    task_memory: dict
     conversation_summary: str
     context_artifacts: list[ContextArtifactPointer]
     context_compaction_history: Annotated[list[ContextCompactionEvent], append_records]
@@ -140,6 +141,7 @@ def initial_state(user_request: str, task_id: str | None = None, task_type: str 
                 metadata={"task_id": run_id},
             )
         ],
+        "task_memory": {},
         "conversation_summary": "",
         "context_artifacts": [],
         "context_compaction_history": [],

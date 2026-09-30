@@ -119,6 +119,7 @@ context_compaction:
   trace_tail_size: 25
   semantic_dedupe_threshold: 0.90
   tool_offload_enabled: true
+  summary_max_calls: 8
 
 reporting:
   detail_level: detailed

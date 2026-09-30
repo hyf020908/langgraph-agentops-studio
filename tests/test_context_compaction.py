@@ -265,3 +265,132 @@ def test_rehydration_reads_known_context_artifacts_and_rejects_path_escape(tmp_p
             "task",
             ContextArtifactPointer(artifact_type="raw_tool_output", path="../outside.json"),
         )
+
+
+def test_structured_memory_preserves_explicit_progress_and_failure(tmp_path: Path) -> None:
+    svc = _service(tmp_path)
+    state = {
+        "user_request": "Deliver", "plan": [PlanStep(step_id="P1", objective="Do", owner="research", done_definition="Done")],
+        "execution_trace": [TraceEvent(timestamp="t", node="research", status="completed", message="Retrieved",
+                                       metadata={"completed_step_ids": ["P1"]})],
+        "error_info": {"stage": "parser", "message": "Invalid source"},
+    }
+    memory = svc.build_task_memory(state)
+    assert memory.completed_steps == ["P1"]
+    assert memory.pending_steps == []
+    assert memory.failed_approaches == ["parser: Invalid source"]
+    assert memory.successful_approaches == ["research: Retrieved"]
+    state["execution_trace"][0].metadata = {}
+    assert svc.build_task_memory(state).pending_steps == ["P1"]
+
+
+def test_eviction_archives_transcript_and_reduces_pressure(tmp_path: Path) -> None:
+    from langgraph.graph.message import add_messages
+    svc = _service(tmp_path, ContextCompactionSettings(max_estimated_tokens=1000, recent_messages=1))
+    messages = [HumanMessage(content="old", id="h0"), AIMessage(content="x" * 12000, id="a0"),
+                HumanMessage(content="latest", id="h1")]
+    state = {"task_id": "task", "user_request": "goal", "messages": messages}
+    update = svc.compact_research_context(state)
+    remaining = add_messages(messages, update["messages"])
+    assert [m.id for m in remaining] == ["h0", "h1"]
+    assert update["task_memory"]["current_goal"] == "goal"
+    pointer = next(p for p in update["context_artifacts"] if p.artifact_type == "conversation_summary")
+    assert svc.rehydrate_context_artifact("task", pointer)["messages"][0]["content"] == "x" * 12000
+    stats = update["context_compaction_history"][0].stats
+    assert stats.estimated_tokens_after < stats.estimated_tokens_before
+
+
+def test_trace_archive_replacement_is_applied(tmp_path: Path) -> None:
+    svc = _service(tmp_path, ContextCompactionSettings(trace_tail_size=1))
+    trace = [TraceEvent(timestamp=str(i), node="n", status="completed", message=str(i)) for i in range(3)]
+    update = svc.compact_research_context({"task_id": "task", "execution_trace": trace})
+    assert update["execution_trace"]["__replace__"]
+    assert len(update["execution_trace"]["items"]) == 2
+    merged = svc.merge_archived_trace({"task_id": "task", "context_artifacts": update["context_artifacts"],
+                                       "execution_trace": update["execution_trace"]["items"]})
+    assert len(merged) == 4
+
+
+@pytest.mark.parametrize("pressure,level,calls", [("high", "semantic", 1), ("critical", "hierarchical", 2)])
+def test_llm_structured_compression_tiers(tmp_path: Path, pressure: str, level: str, calls: int) -> None:
+    class Provider:
+        count = 0
+        def complete(self, *, system_prompt, user_prompt):
+            self.count += 1
+            payload = json.loads(user_prompt)
+            memory = payload["memory"]
+            memory["key_decisions"] = ["Use validated sources"]
+            return json.dumps(memory)
+    svc = _service(tmp_path, ContextCompactionSettings(recent_messages=1))
+    svc.llm_provider = Provider()
+    state = {"task_id": "task", "user_request": "goal", "messages":
+             [AIMessage(content="decision", id=f"a{i}") for i in range(10)]}
+    summary, pointer = svc.summarize_old_conversation_if_needed(state, pressure)
+    assert json.loads(summary)["compression_level"] == level
+    assert json.loads(summary)["key_decisions"] == ["decision", "Use validated sources"]
+    assert svc.llm_provider.count == calls
+    assert pointer is not None
+
+
+def test_invalid_llm_summary_retains_raw_conversation(tmp_path: Path) -> None:
+    class Provider:
+        def complete(self, **kwargs):
+            memory = json.loads(kwargs["user_prompt"])["memory"]
+            memory["current_goal"] = "changed goal"
+            return json.dumps(memory)
+    svc = _service(tmp_path, ContextCompactionSettings(recent_messages=1))
+    svc.llm_provider = Provider()
+    state = {"task_id": "task", "user_request": "goal", "messages":
+             [AIMessage(content="x" * 10000, id="a"), HumanMessage(content="current", id="h")]}
+    update = svc.compact_research_context(state)
+    assert "messages" not in update
+    assert update["task_memory"]["current_goal"] == "goal"
+
+
+def test_conversation_write_failure_prevents_eviction(tmp_path: Path) -> None:
+    svc = _service(tmp_path, ContextCompactionSettings(recent_messages=1))
+    svc.storage = FailingStore(tmp_path)
+    state = {"task_id": "task", "user_request": "goal", "messages":
+             [AIMessage(content="x" * 10000, id="a"), HumanMessage(content="current", id="h")]}
+    update = svc.compact_research_context(state)
+    assert "messages" not in update
+    assert "conversation_summary" not in update
+
+
+def test_mixed_tool_batch_is_retained_until_all_outputs_are_offloaded(tmp_path: Path) -> None:
+    ai = AIMessage(content="", id="ai", tool_calls=[
+        {"name": "research_grounding_tool", "args": {}, "id": "one"},
+        {"name": "other", "args": {}, "id": "two"},
+    ])
+    tools = [ToolMessage(content="result", name=name, tool_call_id=call, id=call)
+             for name, call in [("research_grounding_tool", "one"), ("other", "two")]]
+    svc = _service(tmp_path)
+    state = {"task_id": "task", "messages": [ai, *tools], "retrieved_sources": [{}],
+             "ranked_evidence": [_evidence("E1", "S1", "alpha")],
+             "evidence_assessments": [], "coverage_record": {}}
+    update, pointers, _ = svc.offload_consumed_tool_outputs(state)
+    assert update == {}
+    assert len(pointers) == 1
+    assert not svc._expired_conversation(state)
+
+
+def test_reused_tool_call_ids_preserve_failed_offload_exchange(tmp_path: Path) -> None:
+    from langgraph.graph.message import add_messages
+    class SelectiveStore(LocalArtifactStore):
+        def write_json(self, task_id, name, payload):
+            if payload.get("message_id") == "tool-new":
+                raise OSError("write failed")
+            return super().write_json(task_id, name, payload)
+    messages = []
+    for attempt in ("old", "new"):
+        messages.extend([
+            AIMessage(content="", id=f"ai-{attempt}", tool_calls=[
+                {"name": "research_grounding_tool", "args": {}, "id": "reused"}]),
+            ToolMessage(content=attempt, id=f"tool-{attempt}", name="research_grounding_tool", tool_call_id="reused"),
+        ])
+    svc = _service(tmp_path)
+    svc.storage = SelectiveStore(tmp_path)
+    state = {"task_id": "task", "messages": messages, "retrieved_sources": [{}],
+             "ranked_evidence": [_evidence("E1", "S1", "alpha")], "evidence_assessments": [], "coverage_record": {}}
+    update, _, _ = svc.offload_consumed_tool_outputs(state)
+    assert [m.id for m in add_messages(messages, update["messages"])] == ["ai-new", "tool-new"]
