@@ -8,6 +8,7 @@ LangGraph AgentOps Studio 是一个基于 LangGraph 原生能力构建的 AgentO
 
 - 基于图的编排，使用 `StateGraph`、`ToolNode`、`Command`、`interrupt` 和检查点支持的恢复语义。
 - 基于角色的多智能体工作流：规划器、研究流水线、分析员、审阅员、HITL 审批关口、执行器和监督器。
+- 可自定义专家团队，支持并行协作、顺序交接和每位专家的 MCP 工具权限；支持通过 API 管理 MCP 服务器与数据库连接，见[使用指南](docs/multi_agent_mcp.md)。
 - Provider 托管的 LLM 与 Embedding 客户端（`openai`、`deepseek`、`openai_compatible`）。
 - 混合知识检索，结合 BM25、向量召回、RRF 融合与可配置重排序，并接入 Web 证据源（Tavily + Jina，或 Exa search + content extraction）。
 - 基于 RabbitMQ 的任务执行，支持独立 worker、持久化任务与 outbox、并发准入和重复投递保护。
@@ -26,6 +27,8 @@ flowchart TD
     START([START]) --> init[initialize_task]
     init --> planner[planner_agent]
     planner --> supervisor[supervisor]
+    planner -->|可选| collaboration[自定义专家协作]
+    collaboration --> supervisor
     supervisor --> research[research_pipeline]
     research --> supervisor
     supervisor --> analyst[analyst_agent]
@@ -343,6 +346,8 @@ web/
 ```
 
 ## 🧪 测试
+
+后端 lint：`python -m ruff check . --no-cache`。完整回归包含真实 MCP stdio、SSE 和 Streamable HTTP 测试；独立运行后端 E2E：`python -m pytest tests/e2e -q`。E2E 使用本地模型协议服务、真实 API 进程和 MCP SQLite 子进程，无需外部密钥。
 
 确定性单元测试：
 

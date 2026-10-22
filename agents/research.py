@@ -45,7 +45,7 @@ def _collect_tool_call_records(messages, tool_names: set[str] | None = None) -> 
         if not isinstance(message, AIMessage):
             continue
         call_names = {str(call.get("name", "")) for call in getattr(message, "tool_calls", None) or []}
-        if "research_grounding_tool" in call_names:
+        if call_names & {"research_grounding_tool", "trace_logger_tool"}:
             start_index = index
     messages = messages[start_index:]
 
@@ -142,7 +142,9 @@ def build_research_briefing_node(runtime: AgentRuntime):
             }
         ]
 
-        for index, query in enumerate(queries, start=1):
+        grounding = runtime.settings.web_grounding
+        active_queries = [] if state.get("mcp_sources") and not grounding.enable_web_search and not grounding.enable_vector_rag else queries
+        for index, query in enumerate(active_queries, start=1):
             tool_calls.append(
                 {
                     "name": "research_grounding_tool",
@@ -178,7 +180,7 @@ def build_parse_sources_node(runtime: AgentRuntime):
     def parse_sources(state):
         grounding_messages = _tool_messages(state.get("messages", []), "research_grounding_tool")
 
-        aggregated_results = []
+        aggregated_results = [item.model_dump() if hasattr(item, "model_dump") else item for item in state.get("mcp_sources", [])]
         for message in grounding_messages:
             try:
                 payload = json.loads(message.content)

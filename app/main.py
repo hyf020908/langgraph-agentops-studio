@@ -23,6 +23,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--task-file", help="Path to a text or JSON file containing a task.")
     parser.add_argument("--task-id", help="Optional task ID for checkpointed runs.")
     parser.add_argument("--task-type", default="general", help="Task type used by governance policy evaluation.")
+    parser.add_argument("--collaboration-file", help="JSON file defining specialist agents and MCP server access.")
     parser.add_argument(
         "--auto-approve",
         action="store_true",
@@ -45,11 +46,13 @@ def main() -> None:
     task = resolve_task(args)
     try:
         runner = WorkflowRunner()
+        collaboration = json.loads(Path(args.collaboration_file).read_text(encoding="utf-8")) if args.collaboration_file else None
         state, interrupt_payload = runner.start(
             task=task,
             task_id=args.task_id,
             auto_approve=args.auto_approve,
             task_type=args.task_type,
+            collaboration=collaboration,
         )
     except Exception as exc:
         raise SystemExit(f"Workflow initialization/execution failed: {exc}") from exc

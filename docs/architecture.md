@@ -6,6 +6,7 @@ The top-level graph contains these nodes:
 
 - `initialize_task`
 - `planner_agent`
+- optional `collaboration` subgraph (custom specialists before research)
 - `supervisor`
 - `research_pipeline` (subgraph)
 - `analyst_agent`
@@ -14,6 +15,13 @@ The top-level graph contains these nodes:
 - `executor_agent`
 
 ## Research Subgraph
+
+When configured, specialist agents run after planning, using parallel LangGraph
+`Send` dispatch or sequential peer handoffs. Their allowed MCP tool responses
+join the normal source parser and evidence ranker, including when web and vector
+grounding are disabled. The analyst consumes specialist summaries as context;
+failed specialists trigger governance escalation when analysis proceeds.
+See [multi-agent and MCP configuration](multi_agent_mcp.md).
 
 `research_pipeline` runs:
 
@@ -32,6 +40,8 @@ The top-level graph contains these nodes:
 - `services/evidence.py`: evidence assessment, conflict/support detection, and coverage scoring.
 - `services/recommendation.py`: evidence-driven recommendation synthesis.
 - `services/governance.py`: policy evaluation for human review gating.
+- `services/collaboration.py`: bounded specialist reasoning and MCP tool loops.
+- `services/mcp.py`: persistent connection registry, policy checks, SDK sessions, and tool/resource access.
 
 ## State Contract
 

@@ -29,12 +29,18 @@ from schemas.models import (
     RevisionLedger,
 )
 from services.config import Settings
+from schemas.collaboration import CollaborationConfig, SpecialistConfig, SpecialistResult
+from schemas.models import SearchResult
 
 
 def build_checkpointer(settings: Settings):
     from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
     allowed_modules = [
+        CollaborationConfig,
+        SpecialistConfig,
+        SpecialistResult,
+        SearchResult,
         ApprovalDecision,
         ArtifactRecord,
         CitationRecord,

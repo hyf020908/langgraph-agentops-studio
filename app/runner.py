@@ -15,6 +15,7 @@ from artifacts.exporter import render_final_report
 from graph.builder import build_agent_graph
 from schemas.models import ModelCallRecord, RunResponse, ToolCallRecord, TraceEvent
 from schemas.state import initial_state
+from schemas.collaboration import CollaborationConfig
 from services.runtime import AgentRuntime, build_runtime
 from services.concurrency import RunAdmission, RunConflictError, validate_task_id
 
@@ -35,15 +36,21 @@ class WorkflowRunner:
         task_id: str | None = None,
         auto_approve: bool = False,
         task_type: str = "general",
+        collaboration: CollaborationConfig | dict | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any] | None]:
         from uuid import uuid4
 
         task_id = task_id or f"task-{uuid4().hex}"
+        if collaboration is not None:
+            collaboration = CollaborationConfig.model_validate(collaboration)
+            for agent in collaboration.agents:
+                for server in agent.mcp_servers:
+                    self.runtime.mcp.get_server(server, active=True)
         with self.admission.claim(task_id):
             snapshot = self.graph.get_state({"configurable": {"thread_id": task_id}})
             if getattr(snapshot, "values", None):
                 raise RunConflictError("task_id already exists. Inspect it or use a new task_id.")
-            return self._start(task, task_id, auto_approve, task_type)
+            return self._start(task, task_id, auto_approve, task_type, collaboration)
 
     def _start(
         self,
@@ -51,10 +58,12 @@ class WorkflowRunner:
         task_id: str | None = None,
         auto_approve: bool = False,
         task_type: str = "general",
+        collaboration: CollaborationConfig | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any] | None]:
         # Every run gets a checkpoint thread keyed by `task_id` so interrupts can
         # be resumed later by CLI or API callers.
         state = initial_state(user_request=task, task_id=task_id, task_type=task_type)
+        state["collaboration"] = collaboration
         config = {"configurable": {"thread_id": state["task_id"]}}
         result = self.graph.invoke(state, config=config)
         interrupt_payload = self._extract_interrupt_payload(result)
@@ -177,6 +186,7 @@ class WorkflowRunner:
             draft_report=draft_report,
             final_report=final_report,
             next_nodes=list(state.get("_next_nodes", [])),
+            collaboration_results=state.get("collaboration_results", []),
         )
 
     @staticmethod

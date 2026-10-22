@@ -57,7 +57,7 @@ def build_research_node(subgraph):
         # replace their final values and propagate deletions explicitly.
         update = dict(result)
         for field in ("execution_trace", "tool_call_history", "model_call_history",
-                      "reviewer_history", "context_compaction_history"):
+                      "reviewer_history", "context_compaction_history", "collaboration_results", "mcp_sources"):
             if field in update:
                 update[field] = replace_records(update[field])
         remaining_ids = {m.id for m in result.get("messages", [])}

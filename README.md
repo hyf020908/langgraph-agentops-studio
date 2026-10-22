@@ -8,6 +8,7 @@ LangGraph AgentOps Studio is a LangGraph-native AgentOps workbench for multi-age
 
 - Graph-based orchestration with `StateGraph`, `ToolNode`, `Command`, `interrupt`, and checkpoint-backed resume semantics.
 - Role-based multi-agent workflow: planner, research pipeline, analyst, reviewer, HITL approval gate, executor, and supervisor.
+- Configurable specialist teams with parallel dispatch or sequential handoffs, scoped MCP tool access, and persistent user-defined server/database connections; see the [multi-agent and MCP guide](docs/multi_agent_mcp.md).
 - Provider-managed LLM and embedding clients (`openai`, `deepseek`, `openai_compatible`).
 - Hybrid knowledge retrieval with BM25 and vector recall, RRF fusion, and configurable reranking, complemented by web evidence sources (Tavily + Jina, or Exa search + content extraction).
 - RabbitMQ-backed task execution with independent workers, a durable job/outbox registry, bounded admission, and duplicate-delivery protection.
@@ -26,6 +27,8 @@ flowchart TD
     START([START]) --> init[initialize_task]
     init --> planner[planner_agent]
     planner --> supervisor[supervisor]
+    planner -->|configured| collaboration[specialist collaboration]
+    collaboration --> supervisor
     supervisor --> research[research_pipeline]
     research --> supervisor
     supervisor --> analyst[analyst_agent]

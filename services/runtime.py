@@ -16,6 +16,7 @@ from services.evidence import EvidencePipeline
 from services.governance import GovernanceService
 from services.llm import BaseLLMProvider, build_llm_provider, build_reasoning_engine
 from services.logging import configure_logging
+from services.mcp import MCPService
 from services.recommendation import RecommendationService
 from services.retrieval import RetrievalService
 from services.storage import LocalArtifactStore
@@ -44,6 +45,7 @@ class AgentRuntime:
     context_compaction: ContextCompactionService
     reasoning: Any
     logger: Any
+    mcp: MCPService | None = None
 
     def trace(self, node: str, status: str, message: str, metadata: dict[str, Any] | None = None) -> TraceEvent:
         # Standardize trace creation so every node emits a consistent event shape.
@@ -107,4 +109,5 @@ def build_runtime(settings: Settings | None = None) -> AgentRuntime:
         context_compaction=context_compaction,
         reasoning=build_reasoning_engine(llm_provider),
         logger=logger,
+        mcp=MCPService(resolved_settings.mcp, resolved_settings.output_root),
     )

@@ -36,6 +36,8 @@ from services.storage import LocalArtifactStore
 
 
 PROTECTED_FIELDS = [
+    "collaboration",
+    "collaboration_results",
     "user_request",
     "task_type",
     "plan",

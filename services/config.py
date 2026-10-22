@@ -167,6 +167,16 @@ class ReportingSettings(BaseModel):
     include_next_actions: bool = True
 
 
+class MCPSettings(BaseModel):
+    enabled: bool = False
+    allow_stdio: bool = False
+    allowed_commands: list[str] = Field(default_factory=list)
+    allowed_env_vars: list[str] = Field(default_factory=list)
+    timeout: float = Field(default=30.0, gt=0, le=300)
+    max_output_chars: int = Field(default=32000, ge=1000, le=1000000)
+    max_tools: int = Field(default=64, ge=1, le=256)
+
+
 class Settings(BaseModel):
     app_name: str = "LangGraph AgentOps Studio"
     log_level: str = "INFO"
@@ -191,6 +201,7 @@ class Settings(BaseModel):
     governance: GovernanceSettings = Field(default_factory=GovernanceSettings)
     context_compaction: ContextCompactionSettings = Field(default_factory=ContextCompactionSettings)
     reporting: ReportingSettings = Field(default_factory=ReportingSettings)
+    mcp: MCPSettings = Field(default_factory=MCPSettings)
 
 
 def _load_yaml_defaults() -> dict[str, Any]:
@@ -298,9 +309,19 @@ def load_settings() -> Settings:
     governance_defaults = defaults.get("governance", {})
     context_defaults = defaults.get("context_compaction", {})
     reporting_defaults = defaults.get("reporting", {})
+    mcp_defaults = defaults.get("mcp", {})
 
     return Settings.model_validate(
         {
+            "mcp": {
+                "enabled": _to_bool(os.getenv("MCP_ENABLED"), mcp_defaults.get("enabled", False)),
+                "allow_stdio": _to_bool(os.getenv("MCP_ALLOW_STDIO"), mcp_defaults.get("allow_stdio", False)),
+                "allowed_commands": _list_env("MCP_ALLOWED_COMMANDS", mcp_defaults.get("allowed_commands", [])),
+                "allowed_env_vars": _list_env("MCP_ALLOWED_ENV_VARS", mcp_defaults.get("allowed_env_vars", [])),
+                "timeout": _float_env("MCP_TIMEOUT", mcp_defaults.get("timeout", 30.0)),
+                "max_output_chars": _int_env("MCP_MAX_OUTPUT_CHARS", mcp_defaults.get("max_output_chars", 32000)),
+                "max_tools": _int_env("MCP_MAX_TOOLS", mcp_defaults.get("max_tools", 64)),
+            },
             "app_name": os.getenv("APP_NAME", defaults.get("project_name", "LangGraph AgentOps Studio")),
             "log_level": os.getenv("LOG_LEVEL", defaults.get("log_level", "INFO")),
             "output_root": os.getenv("OUTPUT_ROOT", defaults.get("output_root", "runs")),

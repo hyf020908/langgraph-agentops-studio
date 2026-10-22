@@ -14,6 +14,7 @@ from agents.reviewer import build_human_review_node, build_reviewer_node
 from agents.supervisor import build_supervisor_node
 from graph.research_subgraph import build_research_node, build_research_subgraph
 from graph.routing import supervisor_router
+from graph.collaboration import build_collaboration_subgraph
 from schemas.state import AgentState
 from services.checkpoint import build_checkpointer
 from services.runtime import AgentRuntime
@@ -28,6 +29,7 @@ def build_agent_graph(runtime: AgentRuntime):
     graph = StateGraph(AgentState)
     graph.add_node("initialize_task", build_initialize_node(runtime))
     graph.add_node("planner_agent", build_planner_node(runtime))
+    graph.add_node("collaboration", build_research_node(build_collaboration_subgraph(runtime)))
     graph.add_node("supervisor", build_supervisor_node(runtime))
     graph.add_node("research_pipeline", build_research_node(research_subgraph))
     graph.add_node("analyst_agent", build_analyst_node(runtime, tools))
@@ -39,7 +41,8 @@ def build_agent_graph(runtime: AgentRuntime):
     # run needs more research, analysis, human review, export, or can terminate.
     graph.add_edge(START, "initialize_task")
     graph.add_edge("initialize_task", "planner_agent")
-    graph.add_edge("planner_agent", "supervisor")
+    graph.add_conditional_edges("planner_agent", lambda state: "collaboration" if state.get("collaboration") else "supervisor")
+    graph.add_edge("collaboration", "supervisor")
     graph.add_conditional_edges(
         "supervisor",
         supervisor_router,

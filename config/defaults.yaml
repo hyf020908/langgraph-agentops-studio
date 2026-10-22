@@ -8,6 +8,15 @@ max_revisions: 2
 risk_threshold_for_human_review: 0.68
 default_reviewer: governance-board
 
+mcp:
+  enabled: false
+  allow_stdio: false
+  allowed_commands: []
+  allowed_env_vars: []
+  timeout: 30
+  max_output_chars: 32000
+  max_tools: 64
+
 llm:
   provider: openai_compatible
   model: gpt-4o-mini

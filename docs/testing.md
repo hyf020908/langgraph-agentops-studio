@@ -1,5 +1,32 @@
 # Testing Strategy
 
+## Multi-agent and MCP validation
+
+`python -m ruff check . --no-cache` lints backend code, examples and tests.
+`python -m pytest -q -p no:cacheprovider` runs all regressions, MCP transport
+tests and backend E2E tests. `python -m build` builds the Python sdist/wheel;
+`python -m compileall app agents graph services tools schemas config artifacts prompts`
+checks bytecode compilation. `cd web && npm ci && npm run build` checks strict
+TypeScript and the unchanged frontend production build.
+
+- `tests/test_mcp.py`: durable CRUD, transport/configuration policy, environment
+  reference permissions and redaction, real stdio/SSE/Streamable HTTP sessions,
+  tools/resources, output limits, timeout cleanup/recovery and API contracts.
+- `tests/test_collaboration.py`: parallel execution, sequential handoffs, bounded
+  tool access, validation, failure escalation, history isolation, queue payloads
+  and memory/SQLite checkpoints.
+- `tests/e2e/test_multi_agent_mcp.py`: launches a real Uvicorn API process, a local
+  OpenAI-compatible HTTP fixture and the example MCP SQLite subprocess. Verifies
+  read-only database access, specialist collaboration, evidence lineage,
+  report/artifact export, approval resume and persistence across API restarts.
+
+Run E2E independently with `python -m pytest tests/e2e -q`. These tests require
+local loopback sockets and subprocesses, without external services or credentials.
+Temporary runtime data uses pytest's temporary directory; use `--basetemp` to
+place it in a disposable directory. Remove that directory, bytecode caches,
+build/egg-info outputs and frontend build/dependency folders after local validation
+when a clean source tree is required.
+
 ## Layer 1: Pure Logic Tests
 
 These tests run without external network calls and validate deterministic logic:

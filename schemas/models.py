@@ -10,6 +10,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from schemas.collaboration import CollaborationConfig, SpecialistResult
+
 
 SourceType = Literal["vector", "web_search", "webpage", "unknown"]
 ProviderType = Literal[
@@ -361,6 +363,7 @@ class RunRequest(BaseModel):
     task_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
     auto_approve: bool = False
     task_type: str = Field(default="general", min_length=1, max_length=64)
+    collaboration: CollaborationConfig | None = None
 
 
 class ContinueRequest(BaseModel):
@@ -400,3 +403,4 @@ class RunResponse(BaseModel):
     draft_report: str | None = None
     final_report: str | None = None
     next_nodes: list[str] = Field(default_factory=list)
+    collaboration_results: list[SpecialistResult] = Field(default_factory=list)

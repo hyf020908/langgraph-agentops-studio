@@ -26,6 +26,8 @@ from services.resilience import ProviderUnavailable
 from services.broker import queue_enabled
 from services.jobs import JobStore
 from services.config import load_settings
+from services.mcp import MCPError, MCPService
+from schemas.mcp import MCPResourceRequest, MCPServerConfig, MCPToolCallRequest
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -129,6 +131,8 @@ async def admission_and_trace(request, call_next):
 
 
 def api_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, MCPError):
+        return HTTPException(status_code=exc.status_code, detail=str(exc))
     if isinstance(exc, RunNotFoundError):
         return HTTPException(status_code=404, detail=str(exc))
     if isinstance(exc, RunConflictError):
@@ -189,17 +193,23 @@ def providers() -> dict[str, str | None]:
 
 def _create_run(request: RunRequest, response: Response) -> RunResponse:
     try:
+        if request.collaboration is not None:
+            for agent in request.collaboration.agents:
+                for server in agent.mcp_servers:
+                    get_mcp_service().get_server(server, active=True)
         if queue_enabled():
             task_id = request.task_id or f"task-{uuid4().hex}"
             job = get_jobs().enqueue(task_id, "start", {**request.model_dump(), "task_id": task_id})
             response.status_code = 202
             return RunResponse(task_id=task_id, status="queued", queue_status="queued", queue_job_id=job["id"], approval_required=False)
         runner = get_runner()
+        options = {"collaboration": request.collaboration} if request.collaboration is not None else {}
         state, interrupt_payload = runner.start(
             task=request.task,
             task_id=request.task_id,
             auto_approve=request.auto_approve,
             task_type=request.task_type,
+            **options,
         )
     except Exception as exc:  # pragma: no cover - defensive API wrapper
         logger.exception("Run creation failed.")
@@ -304,3 +314,66 @@ def ingest_documents(request: IngestRequest) -> IngestResponse:
         logger.exception("Document ingestion failed.")
         raise api_error(exc) from exc
     return IngestResponse.model_validate(report)
+
+
+def get_mcp_service() -> MCPService:
+    settings = load_settings()
+    return MCPService(settings.mcp, settings.output_root)
+
+
+@app.exception_handler(MCPError)
+async def mcp_error_handler(request, exc: MCPError):
+    return JSONResponse({"detail": str(exc)}, status_code=exc.status_code)
+
+
+@app.get("/mcp/servers", response_model=list[MCPServerConfig])
+def list_mcp_servers():
+    return get_mcp_service().list_servers()
+
+
+@app.post("/mcp/servers", response_model=MCPServerConfig, status_code=201)
+def create_mcp_server(request: MCPServerConfig):
+    return get_mcp_service().save_server(request)
+
+
+@app.get("/mcp/servers/{name}", response_model=MCPServerConfig)
+def get_mcp_server(name: str):
+    return get_mcp_service().get_server(name)
+
+
+@app.put("/mcp/servers/{name}", response_model=MCPServerConfig)
+def update_mcp_server(name: str, request: MCPServerConfig):
+    if name != request.name:
+        raise HTTPException(status_code=422, detail="Server name must match the URL.")
+    return get_mcp_service().save_server(request, replace=True)
+
+
+@app.delete("/mcp/servers/{name}", status_code=204)
+def delete_mcp_server(name: str):
+    get_mcp_service().delete_server(name)
+    return Response(status_code=204)
+
+
+@app.post("/mcp/servers/{name}/test")
+async def test_mcp_server(name: str):
+    return await get_mcp_service().test_server(name)
+
+
+@app.get("/mcp/servers/{name}/tools")
+async def list_mcp_tools(name: str):
+    return await get_mcp_service().list_tools(name)
+
+
+@app.post("/mcp/servers/{name}/tools/{tool_name}/call")
+async def call_mcp_tool(name: str, tool_name: str, request: MCPToolCallRequest):
+    return await get_mcp_service().call_tool(name, tool_name, request.arguments)
+
+
+@app.get("/mcp/servers/{name}/resources")
+async def list_mcp_resources(name: str):
+    return await get_mcp_service().list_resources(name)
+
+
+@app.post("/mcp/servers/{name}/resources/read")
+async def read_mcp_resource(name: str, request: MCPResourceRequest):
+    return await get_mcp_service().read_resource(name, request.uri)

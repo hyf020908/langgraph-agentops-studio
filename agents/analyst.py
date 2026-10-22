@@ -8,6 +8,7 @@ from __future__ import annotations
 from langchain_core.messages import AIMessage
 
 from schemas.models import FindingRecord
+from schemas.collaboration import SpecialistResult
 from services.llm import ProviderReasoningEngine, drain_model_call_history
 from services.runtime import AgentRuntime
 from tools.factory import ToolRegistry, drain_tool_call_history
@@ -35,8 +36,12 @@ def build_analyst_node(runtime: AgentRuntime, tools: ToolRegistry):
             review_context = state.get("review_feedback").summary if state.get("review_feedback") else None
 
         context_kwargs = {}
-        if runtime.context_compaction.settings.enabled and isinstance(runtime.reasoning, ProviderReasoningEngine):
-            context_kwargs["task_context"] = runtime.context_compaction.build_task_memory(state).model_dump()
+        collaboration_results = [SpecialistResult.model_validate(item) for item in state.get("collaboration_results", [])]
+        if isinstance(runtime.reasoning, ProviderReasoningEngine):
+            if runtime.context_compaction.settings.enabled:
+                context_kwargs["task_context"] = runtime.context_compaction.build_task_memory(state).model_dump()
+            if collaboration_results:
+                context_kwargs.setdefault("task_context", {})["specialist_results"] = [item.model_dump() for item in collaboration_results]
         findings = runtime.reasoning.analyze_evidence(
             user_request=state["user_request"],
             ranked_evidence=active_evidence,
@@ -60,6 +65,11 @@ def build_analyst_node(runtime: AgentRuntime, tools: ToolRegistry):
             task_type=state.get("task_type", "general"),
             user_request=state["user_request"],
         )
+        if any(item.status == "error" for item in collaboration_results):
+            governance.requires_human_review = True
+            governance.triggered_policies.append("specialist_execution_failed")
+            governance.evidence_gaps.append("One or more specialists failed to complete their assigned work.")
+            governance.required_human_action = "Review failed specialist work before approving export."
 
         report_payload = tools.invoke(
             "report_writer_tool",

@@ -36,6 +36,8 @@ from schemas.models import (
     ToolCallRecord,
     TraceEvent,
 )
+from schemas.collaboration import CollaborationConfig, SpecialistResult
+from schemas.models import SearchResult
 
 
 def append_records(left: list | None, right: list | None) -> list:
@@ -57,6 +59,10 @@ class AgentState(TypedDict, total=False):
     task_type: str
     messages: Annotated[list[BaseMessage], add_messages]
     task_id: str
+    collaboration: CollaborationConfig | None
+    collaboration_complete: bool
+    collaboration_results: Annotated[list[SpecialistResult], append_records]
+    mcp_sources: Annotated[list[SearchResult], append_records]
     # Planner-owned fields that define the work the downstream stages execute.
     plan: list[PlanStep]
     acceptance_criteria: list[str]
@@ -110,6 +116,10 @@ def initial_state(user_request: str, task_id: str | None = None, task_type: str 
         "task_type": task_type,
         "messages": [HumanMessage(content=user_request)],
         "task_id": run_id,
+        "collaboration": None,
+        "collaboration_complete": False,
+        "collaboration_results": [],
+        "mcp_sources": [],
         "plan": [],
         "acceptance_criteria": [],
         "search_queries": [],
